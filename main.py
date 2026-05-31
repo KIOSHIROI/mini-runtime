@@ -8,21 +8,21 @@ async def producer(queue: Queue):
         print(f"submit {i}")
         await asyncio.sleep(1)
     
-async def worker(queue: Queue):
+async def worker(worker_id: int, queue: Queue):
     while True:
         request = await queue.get()
-        print(f"processing {request}")
-        await asyncio.sleep(2)
-        print(f"finish {request}")
+        print(f"Worker-{worker_id} processing {request}")
+        await asyncio.sleep(3)
+        print(f"Worker-{worker_id} finish {request}")
         queue.task_done()
 
 async def main():
     queue = asyncio.Queue() 
     producer_task = asyncio.create_task(producer(queue))
-    worker_task = asyncio.create_task(worker(queue))
+    [asyncio.create_task(worker(i, queue)) for i in range(3)]
     
     await producer_task
-    await worker_task
+    await queue.join()
     
     
 if __name__ == "__main__":
