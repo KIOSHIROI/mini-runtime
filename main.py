@@ -1,11 +1,19 @@
 import asyncio 
-from asyncio import Queue 
+from asyncio import Queue
+from dataclasses import dataclass 
 
+
+@dataclass
+class Request:
+    request_id: int
+    prompt: str
+    submit_time: float
 
 async def producer(queue: Queue):
     for i in range(10):
-        await queue.put(f"request-{i}")
-        print(f"submit {i}")
+        request = Request(request_id=i, prompt=f"request-{i}", submit_time=asyncio.get_event_loop().time())
+        await queue.put(request)
+        print(f"submit {request}")
         await asyncio.sleep(1)
     
 async def worker(worker_id: int, queue: Queue):
