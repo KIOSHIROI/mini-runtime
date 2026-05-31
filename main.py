@@ -16,7 +16,7 @@ async def producer(queue: Queue):
         request = Request(request_id=i, prompt=f"request-{i}", submit_time=asyncio.get_event_loop().time())
         await queue.put(request)
         print(f"submit {request.request_id}")
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.1)
     
 async def worker(worker_id: int, queue: Queue):
     loop = asyncio.get_running_loop()
