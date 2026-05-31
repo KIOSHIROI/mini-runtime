@@ -7,6 +7,7 @@ class Request:
     request_id: int
     prompt: str
     submit_time: float
+    future: asyncio.Future
     
     start_time: float | None = None
     finish_time: float | None = None
@@ -35,12 +36,22 @@ async def scheduler(
             await batch_queue.put(batch)
 
 async def producer(request_queue: Queue):
+    loop = asyncio.get_running_loop()
+    futures = []
     for i in range(10):
-        request = Request(request_id=i, prompt=f"request-{i}", submit_time=asyncio.get_event_loop().time())
+        future = loop.create_future()
+        request = Request(request_id=i, prompt=f"request-{i}", submit_time=loop.time(), future=future)
+        
         await request_queue.put(request)
+        futures.append(future)
+        
         print(f"submit {request.request_id}, "
-              f"queue size={request_queue.qsize()}")
-        await asyncio.sleep(0.1)
+        f"queue size={request_queue.qsize()}")
+    
+    results = await asyncio.gather(*futures)
+    for result in results:
+        print(result)
+
     
 async def worker(worker_id: int, batch_queue: Queue):
     loop = asyncio.get_running_loop()
@@ -73,12 +84,14 @@ async def worker(worker_id: int, batch_queue: Queue):
                 request.finish_time
                 - request.submit_time
             )
-            print(
-                f"[{request.request_id}] "
-                f"wait={queue_wait:.2f}s "
-                f"service={service_time:.2f}s "
-                f"total={total_latency:.2f}s"
-            )
+            if not request.future.done():
+                request.future.set_result({
+                    "request_id": request.request_id,
+                    "output": f"response to {request.prompt}",
+                    "wait": queue_wait,
+                    "service": service_time,
+                    "total": total_latency,
+                })
         batch_queue.task_done()
 
 async def main():
@@ -86,7 +99,7 @@ async def main():
     batch_queue = asyncio.Queue() 
     producer_task = asyncio.create_task(producer(request_queue))
     scheduler_task = asyncio.create_task(scheduler(request_queue, batch_queue))
-    [asyncio.create_task(worker(i, batch_queue)) for i in range(3)]
+    worker_tasks = [asyncio.create_task(worker(i, batch_queue)) for i in range(3)]
     
     await producer_task
     await request_queue.join()
@@ -94,7 +107,9 @@ async def main():
     
     scheduler_task.cancel()
     
-    
+    for task in worker_tasks:
+        task.cancel()
+
 if __name__ == "__main__":
     asyncio.run(main())
     
