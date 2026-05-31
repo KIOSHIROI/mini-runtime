@@ -17,6 +17,7 @@ class Request:
 # Scheduler -> batch_queue -> Worker
 MAX_BATCH_SIZE = 4
 BATCH_TIMEOUT = 0.5
+REQUEST_TIMEOUT = 5.0
 async def scheduler(
     request_queue: Queue,
     batch_queue: Queue,
@@ -35,24 +36,45 @@ async def scheduler(
         if batch:
             await batch_queue.put(batch)
 
+async def wait_result(request_id: int, future: asyncio.Future):
+    try:
+        result = await asyncio.wait_for(future, timeout=REQUEST_TIMEOUT)
+        return 'success', result
+    except asyncio.TimeoutError:
+        return 'timeout', None
+    except asyncio.CancelledError:
+        return 'cancelled', None
+
 async def producer(request_queue: Queue):
     loop = asyncio.get_running_loop()
-    futures = []
+    wait_tasks = []
+    
     for i in range(10):
         future = loop.create_future()
         request = Request(request_id=i, prompt=f"request-{i}", submit_time=loop.time(), future=future)
         
         await request_queue.put(request)
-        futures.append(future)
+        wait_tasks.append(asyncio.create_task(wait_result(request.request_id, future)))
         
         print(f"submit {request.request_id}, "
         f"queue size={request_queue.qsize()}")
     
-    results = await asyncio.gather(*futures)
-    for result in results:
-        print(result)
-
+    results = await asyncio.gather(*wait_tasks)
     
+    for status, result in results:
+        if status == 'success':
+            print(f"request {result['request_id']} completed, "
+                  f"wait={result['wait']:.2f}s, "
+                  f"service={result['service']:.2f}s, "
+                  f"total={result['total']:.2f}s")
+        else:
+            print(f"request {result['request_id']} {status}")
+    success = sum(1 for status, _ in results if status == 'success')
+    timeout = sum(1 for status, _ in results if status == 'timeout')
+    cancelled = sum(1 for status, _ in results if status == 'cancelled')
+    
+    print(f"Results - Success: {success}, Timeout: {timeout}, Cancelled: {cancelled}")
+
 async def worker(worker_id: int, batch_queue: Queue):
     loop = asyncio.get_running_loop()
     while True:
