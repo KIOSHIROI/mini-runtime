@@ -18,14 +18,14 @@ class MiniRuntime:
         max_batch_size: int = 4,
         batch_timeout: float = 0.5,
         request_timeout: float = 5.0,
-        nums_workers: int = 3,
+        num_workers: int = 3,
      ):
         self.request_queue = asyncio.Queue()
         self.batch_queue = asyncio.Queue()
         self.max_batch_size = max_batch_size
         self.batch_timeout = batch_timeout
         self.request_timeout = request_timeout
-        self.nums_workers = nums_workers
+        self.num_workers = num_workers
         self.scheduler_task = None
         self.worker_tasks = []  
         self.next_request_id = 0
@@ -34,15 +34,14 @@ class MiniRuntime:
         self.scheduler_task = asyncio.create_task(self.scheduler())
         self.worker_tasks = [
             asyncio.create_task(self.worker(i))
-            for i in range(self.nums_workers)
+            for i in range(self.num_workers)
         ]
     
     async def submit(self, prompt: str):
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         request_id = self.next_request_id
-        print(f"submit request-{request_id}, "
-              f"queue size={self.request_queue.qsize()}")
+
         self.next_request_id += 1
         
         request = Request(
@@ -53,6 +52,8 @@ class MiniRuntime:
         )
         
         await self.request_queue.put(request)
+        print(f"submit request-{request_id}, "
+        f"queue size={self.request_queue.qsize()}")
         
         try:
             return await asyncio.wait_for(future, timeout=self.request_timeout)
@@ -128,45 +129,12 @@ class MiniRuntime:
 
         for task in self.worker_tasks:
             task.cancel()
-async def wait_result(request_id: int, future: asyncio.Future):
-    try:
-        result = await asyncio.wait_for(future, timeout=REQUEST_TIMEOUT)
-        return 'success', result
-    except asyncio.TimeoutError:
-        return 'timeout', {"request_id": request_id}
-    except asyncio.CancelledError:
-        return 'cancelled', {"request_id": request_id}
-
-async def producer(request_queue: Queue):
-    loop = asyncio.get_running_loop()
-    wait_tasks = []
-    
-    for i in range(10):
-        future = loop.create_future()
-        request = Request(request_id=i, prompt=f"request-{i}", submit_time=loop.time(), future=future)
         
-        await request_queue.put(request)
-        wait_tasks.append(asyncio.create_task(wait_result(request.request_id, future)))
-        
-        print(f"submit {request.request_id}, "
-        f"queue size={request_queue.qsize()}")
-    
-    results = await asyncio.gather(*wait_tasks)
-    
-    for status, result in results:
-        if status == 'success':
-            print(f"request {result['request_id']} completed, "
-                  f"wait={result['wait']:.2f}s, "
-                  f"service={result['service']:.2f}s, "
-                  f"total={result['total']:.2f}s")
-        else:
-            print(f"request {result['request_id']} {status}")
-    success = sum(1 for status, _ in results if status == 'success')
-    timeout = sum(1 for status, _ in results if status == 'timeout')
-    cancelled = sum(1 for status, _ in results if status == 'cancelled')
-    
-    print(f"Results - Success: {success}, Timeout: {timeout}, Cancelled: {cancelled}")
-
+        await asyncio.gather(
+            self.scheduler_task,
+            *self.worker_tasks,
+            return_exceptions=True
+        )
 
 async def main():
     runtime = MiniRuntime()
