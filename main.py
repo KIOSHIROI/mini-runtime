@@ -12,7 +12,7 @@ class Request:
     start_time: float | None = None
     finish_time: float | None = None
 @dataclass
-class Matrics:
+class Metrics:
     submitted: int = 0
     success: int = 0
     timeout: int = 0
@@ -40,7 +40,7 @@ class MiniRuntime:
         self.scheduler_task = None
         self.worker_tasks = []  
         self.next_request_id = 0
-        self.metrics = Matrics()
+        self.metrics = Metrics()
     
     def snapshot_metrics(self):
         success = self.metrics.success 
@@ -186,22 +186,54 @@ class MiniRuntime:
             return_exceptions=True
         )
 
-async def main():
-    runtime = MiniRuntime()
+async def run_benchmark(
+    num_requests: int,
+    concurrency: int,
+    max_batch_size: int,
+    num_workers: int,
+    request_timeout: float,
+):
+    runtime = MiniRuntime(
+        max_batch_size = max_batch_size,
+        num_workers = num_workers,
+        request_timeout = request_timeout,
+    )
+    
     await runtime.start()
     
+    sem = asyncio.Semaphore(concurrency)
+    
+    async def one_request(i: int):
+        async with sem:
+            return await runtime.submit(f"request-{i}")
+    start = asyncio.get_running_loop().time()
+    
     tasks = [
-        asyncio.create_task(runtime.submit(f"request-{i}"))
-        for i in range(10)
+        asyncio.create_task(one_request(i))
+        for i in range(num_requests)
     ]
     
     results = await asyncio.gather(*tasks)
-    for result in results:
-        print(result)
+
+    end = asyncio.get_running_loop().time()
     
     await runtime.shutdown()
     
-    print(runtime.snapshot_metrics())
+    metrics = runtime.snapshot_metrics() 
+    metrics['duration'] = end - start
+    metrics['throughput_rps'] = num_requests / (end - start) if (end - start) > 0 else 0
+    
+    return results, metrics
+
+async def main():
+    _, metrics = await run_benchmark(
+        num_requests=20,
+        concurrency=10,
+        max_batch_size=1,
+        num_workers=3,
+        request_timeout=30.0,
+    )
+    print(metrics)
 
 if __name__ == "__main__":
     asyncio.run(main())
