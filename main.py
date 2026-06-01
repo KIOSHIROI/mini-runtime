@@ -251,12 +251,39 @@ class MiniRuntime:
             return_exceptions=True
         )
 
+def make_workload(kind: str, num_requests: int):
+    if kind == "spso":
+        return [
+            {"prompt_tokens": 16, "max_new_tokens": 16}
+            for _ in range(num_requests)
+        ]
+    if kind == "lpso":
+        return [
+            {"prompt_tokens": 256, "max_new_tokens": 16}
+            for _ in range(num_requests)
+        ]
+    if kind == "splo":
+        return [
+            {"prompt_tokens": 16, "max_new_tokens": 128}
+            for _ in range(num_requests)
+        ]
+    if kind == "mixed":
+        return [
+            {"prompt_tokens": 16, "max_new_tokens": 16}
+            if i % 2 == 0
+            else {"prompt_tokens": 256, "max_new_tokens": 128}
+            for i in range(num_requests)
+        ]
+    
+    raise ValueError(f"unknown workload kind: {kind}")
+
 async def run_benchmark(
     num_requests: int,
     concurrency: int,
     max_batch_size: int,
     num_workers: int,
     request_timeout: float,
+    workload_kind: str,
 ):
     runtime = MiniRuntime(
         max_batch_size = max_batch_size,
@@ -268,12 +295,15 @@ async def run_benchmark(
     
     sem = asyncio.Semaphore(concurrency)
     
+    workload = make_workload(workload_kind, num_requests)
+    
     async def one_request(i: int):
+        item = workload[i]
         async with sem:
             return await runtime.submit(
                 f"request-{i}",
-                prompt_tokens=16,
-                max_new_tokens=16,
+                prompt_tokens=item["prompt_tokens"],
+                max_new_tokens=item["max_new_tokens"],
             )
             
     start = asyncio.get_running_loop().time()
@@ -290,6 +320,10 @@ async def run_benchmark(
     await runtime.shutdown()
     
     metrics = runtime.snapshot_metrics() 
+    metrics['workload'] = workload_kind
+    metrics["max_batch_size"] = max_batch_size
+    metrics["num_workers"] = num_workers
+    metrics["concurrency"] = concurrency
     metrics['duration'] = end - start
     metrics['throughput_rps'] = num_requests / (end - start) if (end - start) > 0 else 0
     
@@ -299,10 +333,10 @@ async def main():
     all_metrics = []
     # n_r, concur, bs, n_w, to
     configs = [
-        (20, 10, 4, 1, 30.0),
-        (20, 10, 4, 2, 30.0),
-        (20, 10, 4, 3, 30.0),
-        (20, 10, 4, 4, 30.0),
+        (20, 10, 4, 3, 30.0, "spso"),
+        (20, 10, 4, 3, 30.0, "lpso"),
+        (20, 10, 4, 3, 30.0, "splo"),
+        (20, 10, 4, 3, 30.0, "mixed"),
     ]
     for config in configs:
         _, metrics = await run_benchmark(
@@ -311,6 +345,7 @@ async def main():
             max_batch_size=config[2],
             num_workers=config[3],
             request_timeout=config[4],
+            workload_kind=config[5],
         )
         all_metrics.append(metrics)
 
