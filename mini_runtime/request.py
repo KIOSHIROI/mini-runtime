@@ -10,6 +10,9 @@ class Request:
     prompt_tokens: int
     max_new_tokens: int 
     
+    generated_tokens: int = 0
+    prefill_done: bool = False
+    first_token_time: float | None = None
     start_time: float | None = None
     finish_time: float | None = None
     ttft: float | None = None
