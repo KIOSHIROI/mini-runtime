@@ -1,7 +1,7 @@
 import asyncio 
 from asyncio import Queue
 from dataclasses import dataclass 
-
+import csv
 # batch prefill -> first token -> batch decode -> result
 @dataclass
 class Request:
@@ -329,6 +329,15 @@ async def run_benchmark(
     
     return results, metrics
 
+def write_metrics_csv(path: str, rows: list[dict]):
+    if not rows:
+        return
+
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+        writer.writeheader()
+        writer.writerows(rows)
+        
 async def main():
     all_metrics = []
     # n_r, concur, bs, n_w, to
@@ -351,6 +360,10 @@ async def main():
 
     for metrics in all_metrics:
         print(metrics)
+       
+    write_metrics_csv("benchmark_results.csv", all_metrics) 
+        
+
 
 if __name__ == "__main__":
     asyncio.run(main())
