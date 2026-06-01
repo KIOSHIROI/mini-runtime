@@ -2,15 +2,21 @@ import asyncio
 from asyncio import Queue
 from dataclasses import dataclass 
 
+# batch prefill -> first token -> batch decode -> result
 @dataclass
 class Request:
     request_id: int
     prompt: str
     submit_time: float
     future: asyncio.Future
+    prompt_tokens: int
+    max_new_tokens: int 
     
     start_time: float | None = None
     finish_time: float | None = None
+    ttft: float | None = None
+    tpot: float | None = None
+    
 @dataclass
 class Metrics:
     submitted: int = 0
@@ -22,7 +28,35 @@ class Metrics:
     total_queue_wait: float = 0.0
     total_service_time: float = 0.0
     total_latency: float = 0.0
+    total_ttft: float = 0.0
+    total_tpot: float = 0.0
+    total_output_tokens: int = 0
     
+class SimulatedLLMBackend:
+    def __init__(
+        self,
+        prefill_time_per_token: float = 0.01,
+        decode_time_per_token: float = 0.05,
+    ):
+        self.prefill_time_per_token = prefill_time_per_token
+        self.decode_time_per_token = decode_time_per_token
+    
+    async def generate_batch(self, batch: list[Request]):
+        max_prompt_tokens = max(r.prompt_tokens for r in batch)
+        max_new_tokens = max(r.max_new_tokens for r in batch)
+        
+        prefill_time = max_prompt_tokens * self.prefill_time_per_token 
+        await asyncio.sleep(prefill_time)
+        
+        first_token_time = asyncio.get_running_loop().time()
+        
+        decode_time = max_new_tokens * self.decode_time_per_token 
+        await asyncio.sleep(decode_time)
+        
+        finish_time = asyncio.get_running_loop().time()
+        
+        return first_token_time, finish_time 
+        
 class MiniRuntime:
     def __init__(
         self,
@@ -30,6 +64,7 @@ class MiniRuntime:
         batch_timeout: float = 0.5,
         request_timeout: float = 1.0,
         num_workers: int = 3,
+        backend: SimulatedLLMBackend = SimulatedLLMBackend(),
      ):
         self.request_queue = asyncio.Queue()
         self.batch_queue = asyncio.Queue()
@@ -41,6 +76,7 @@ class MiniRuntime:
         self.worker_tasks = []  
         self.next_request_id = 0
         self.metrics = Metrics()
+        self.backend =backend 
     
     def snapshot_metrics(self):
         success = self.metrics.success 
@@ -68,6 +104,17 @@ class MiniRuntime:
                 self.metrics.total_latency / success
                 if success else 0
             ),
+            "avg_ttft": (
+                self.metrics.total_ttft / success
+                if success else 0
+            ),
+            "avg_tpot": (
+                self.metrics.total_tpot / success
+                if success else 0            ),
+            "output_tokens_per_sec": (
+                self.metrics.total_output_tokens / self.metrics.total_service_time
+                if self.metrics.total_service_time > 0 else 0
+            ),
         }
     
     async def start(self):
@@ -77,7 +124,12 @@ class MiniRuntime:
             for i in range(self.num_workers)
         ]
     
-    async def submit(self, prompt: str):
+    async def submit(
+        self,
+        prompt: str,
+        prompt_tokens: int = 32,
+        max_new_tokens: int = 16,
+    ):
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         request_id = self.next_request_id
@@ -87,6 +139,8 @@ class MiniRuntime:
         request = Request(
             request_id=request_id,
             prompt=prompt,
+            prompt_tokens=prompt_tokens,
+            max_new_tokens=max_new_tokens,
             submit_time=loop.time(),
             future=future
         )
@@ -132,10 +186,11 @@ class MiniRuntime:
                 f"size={len(batch)}")
             
             start = loop.time()
-            for request in batch:
-                request.start_time = start
+            
+            for req in batch:
+                req.start_time = start
                 
-            await asyncio.sleep(3)
+            first_token_time, finish = await self.backend.generate_batch(batch)
             
             finish = loop.time()
             
@@ -154,6 +209,11 @@ class MiniRuntime:
                     request.finish_time
                     - request.submit_time
                 )
+                ttft = first_token_time - request.submit_time
+                tpot = (
+                    (finish - first_token_time) / request.max_new_tokens
+                    if request.max_new_tokens else 0
+                )
                 if not request.future.done():
                     request.future.set_result({
                         "request_id": request.request_id,
@@ -161,11 +221,16 @@ class MiniRuntime:
                         "wait": queue_wait,
                         "service": service_time,
                         "total": total_latency,
+                        "ttft": ttft,
+                        "tpot": tpot,
                     })
                     self.metrics.success += 1
                     self.metrics.total_queue_wait += queue_wait
                     self.metrics.total_service_time += service_time
                     self.metrics.total_latency += total_latency
+                    self.metrics.total_ttft += ttft
+                    self.metrics.total_tpot += tpot
+                    self.metrics.total_output_tokens += request.max_new_tokens
                 else:
                     self.metrics.cancelled += 1
             self.batch_queue.task_done()
@@ -205,7 +270,12 @@ async def run_benchmark(
     
     async def one_request(i: int):
         async with sem:
-            return await runtime.submit(f"request-{i}")
+            return await runtime.submit(
+                f"request-{i}",
+                prompt_tokens=16,
+                max_new_tokens=16,
+            )
+            
     start = asyncio.get_running_loop().time()
     
     tasks = [
@@ -226,14 +296,26 @@ async def run_benchmark(
     return results, metrics
 
 async def main():
-    _, metrics = await run_benchmark(
-        num_requests=20,
-        concurrency=10,
-        max_batch_size=1,
-        num_workers=3,
-        request_timeout=30.0,
-    )
-    print(metrics)
+    all_metrics = []
+    # n_r, concur, bs, n_w, to
+    configs = [
+        (20, 10, 4, 1, 30.0),
+        (20, 10, 4, 2, 30.0),
+        (20, 10, 4, 3, 30.0),
+        (20, 10, 4, 4, 30.0),
+    ]
+    for config in configs:
+        _, metrics = await run_benchmark(
+            num_requests=config[0],
+            concurrency=config[1],
+            max_batch_size=config[2],
+            num_workers=config[3],
+            request_timeout=config[4],
+        )
+        all_metrics.append(metrics)
+
+    for metrics in all_metrics:
+        print(metrics)
 
 if __name__ == "__main__":
     asyncio.run(main())
