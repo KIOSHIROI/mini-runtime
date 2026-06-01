@@ -11,13 +11,24 @@ class Request:
     
     start_time: float | None = None
     finish_time: float | None = None
-
+@dataclass
+class Matrics:
+    submitted: int = 0
+    success: int = 0
+    timeout: int = 0
+    cancelled: int = 0
+    batches: int = 0
+    total_batch_size: int = 0
+    total_queue_wait: float = 0.0
+    total_service_time: float = 0.0
+    total_latency: float = 0.0
+    
 class MiniRuntime:
     def __init__(
         self,
         max_batch_size: int = 4,
         batch_timeout: float = 0.5,
-        request_timeout: float = 5.0,
+        request_timeout: float = 1.0,
         num_workers: int = 3,
      ):
         self.request_queue = asyncio.Queue()
@@ -29,6 +40,35 @@ class MiniRuntime:
         self.scheduler_task = None
         self.worker_tasks = []  
         self.next_request_id = 0
+        self.metrics = Matrics()
+    
+    def snapshot_metrics(self):
+        success = self.metrics.success 
+        batches = self.metrics.batches 
+        
+        return {
+            "submitted": self.metrics.submitted,
+            "success": self.metrics.success,
+            "timeout": self.metrics.timeout,
+            "cancelled": self.metrics.cancelled,
+            "batches": self.metrics.batches,
+            "avg_batch_size": (
+                self.metrics.total_batch_size / batches
+                if batches else 0
+            ),
+            "avg_queue_wait": (
+                self.metrics.total_queue_wait / success
+                if success else 0
+            ),
+            "avg_service_time": (
+                self.metrics.total_service_time / success
+                if success else 0
+            ),
+            "avg_latency": (
+                self.metrics.total_latency / success
+                if success else 0
+            ),
+        }
     
     async def start(self):
         self.scheduler_task = asyncio.create_task(self.scheduler())
@@ -52,6 +92,7 @@ class MiniRuntime:
         )
         
         await self.request_queue.put(request)
+        self.metrics.submitted += 1
         print(f"submit request-{request_id}, "
         f"queue size={self.request_queue.qsize()}")
         
@@ -59,6 +100,7 @@ class MiniRuntime:
             return await asyncio.wait_for(future, timeout=self.request_timeout)
         except asyncio.TimeoutError:
             future.cancel()
+            self.metrics.timeout += 1
             return {
                 'request_id': request_id,
                 'status': 'timeout'
@@ -77,6 +119,8 @@ class MiniRuntime:
                 pass
 
             if batch:
+                self.metrics.batches += 1
+                self.metrics.total_batch_size += len(batch)
                 await self.batch_queue.put(batch)
                 
     async def worker(self, worker_id: int):
@@ -118,6 +162,12 @@ class MiniRuntime:
                         "service": service_time,
                         "total": total_latency,
                     })
+                    self.metrics.success += 1
+                    self.metrics.total_queue_wait += queue_wait
+                    self.metrics.total_service_time += service_time
+                    self.metrics.total_latency += total_latency
+                else:
+                    self.metrics.cancelled += 1
             self.batch_queue.task_done()
         
     async def shutdown(self):
@@ -150,6 +200,8 @@ async def main():
         print(result)
     
     await runtime.shutdown()
+    
+    print(runtime.snapshot_metrics())
 
 if __name__ == "__main__":
     asyncio.run(main())
