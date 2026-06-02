@@ -1,7 +1,5 @@
 import asyncio
 from mini_runtime.continuous_engine import ContinuousBatchingEngine
-from mini_runtime.request import Request
-from mini_runtime.metrics import Metrics
 
 async def main():
     engine = ContinuousBatchingEngine(max_batch_size=4)
@@ -19,9 +17,11 @@ async def main():
     ]
     
     results = await asyncio.gather(*tasks)
-    for r in results:
-        print(r)
-        
+    # for r in results:
+    #     print(r)
+    
+    print(engine.snapshot_metrics())
+    
     await engine.shutdown()
     
 if __name__ == "__main__":

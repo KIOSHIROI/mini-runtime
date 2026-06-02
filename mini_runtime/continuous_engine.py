@@ -39,6 +39,10 @@ class ContinuousBatchingEngine:
                 
             request.start_time = asyncio.get_running_loop().time()
             self.running_requests.append(request)
+            self.metrics.max_running_requests = max(
+                self.metrics.max_running_requests, len(self.running_requests)
+            )
+            
             self.waiting_queue.task_done()
     
     async def prefill_new_requests(self):
@@ -46,6 +50,8 @@ class ContinuousBatchingEngine:
         
         if not new_requests:
             return
+        
+        self.metrics.prefill_batches += 1
         
         prefill_time = max(r.prompt_tokens for r in new_requests) * \
         self.prefill_time_per_token
@@ -59,7 +65,13 @@ class ContinuousBatchingEngine:
             await asyncio.sleep(0.001)
             return
         
+        active = len(self.running_requests) 
+            
         await asyncio.sleep(self.decode_time_per_token)
+        
+        self.metrics.decode_steps += 1
+        self.metrics.total_active_requests  += active  
+          
         now = asyncio.get_running_loop().time()
                 
         finished = []
@@ -76,12 +88,15 @@ class ContinuousBatchingEngine:
         for r in finished:
             self.finish_request(r, now)
             self.running_requests.remove(r)
+        
     
     def finish_request(self, request: Request, finish_time: float):
         if request.future.done():
             self.metrics.cancelled += 1
             return 
         
+        queue_wait = request.start_time - request.submit_time
+        service_time = finish_time - request.start_time
         ttft = request.first_token_time - request.submit_time 
         total = finish_time - request.submit_time 
         tpot = (
@@ -95,8 +110,16 @@ class ContinuousBatchingEngine:
             "tpot": tpot,
             "total": total,
             "generated_tokens": request.generated_tokens,
+            "queue_wait": queue_wait,
+            "service_time": service_time,
         })
         self.metrics.success += 1
+        self.metrics.total_ttft += ttft
+        self.metrics.total_tpot += tpot
+        self.metrics.total_latency += total
+        self.metrics.total_output_tokens += request.generated_tokens
+        self.metrics.total_queue_wait += queue_wait
+        self.metrics.total_service_time += service_time
         
     async def submit(self, prompt: str, prompt_tokens: int = 32, max_new_tokens: int = 32):
         loop = asyncio.get_running_loop()
@@ -125,7 +148,47 @@ class ContinuousBatchingEngine:
                 "request_id": request.request_id,
                 "error": "timeout",
             }
-    
+            
+    def snapshot_metrics(self):
+        success = self.metrics.success 
+        decode_steps = self.metrics.decode_steps
+        
+        return {
+            "submitted": self.metrics.submitted,
+            "success": self.metrics.success,
+            "timeout": self.metrics.timeout,
+            "cancelled": self.metrics.cancelled,
+            "prefill_batches": self.metrics.prefill_batches,
+            "decode_steps": self.metrics.decode_steps,
+            "avg_active_requests": (
+                self.metrics.total_active_requests / decode_steps
+                if decode_steps else 0
+            ),
+            "max_running_requests": self.metrics.max_running_requests,
+            "avg_queue_wait": (
+                self.metrics.total_queue_wait / success
+                if success else 0
+            ),
+            "avg_service_time": (
+                self.metrics.total_service_time / success
+                if success else 0
+            ),
+            "avg_latency": (
+                self.metrics.total_latency / success
+                if success else 0
+            ),
+            "avg_ttft": (
+                self.metrics.total_ttft / success
+                if success else 0
+            ),
+            "avg_tpot": (
+                self.metrics.total_tpot / success
+                if success else 0            ),
+            "output_tokens_per_sec": (
+                self.metrics.total_output_tokens / self.metrics.total_service_time
+                if self.metrics.total_service_time > 0 else 0
+            ),
+        }
     async def shutdown(self):
         await self.waiting_queue.join()
         

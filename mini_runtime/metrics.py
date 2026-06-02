@@ -7,6 +7,10 @@ class Metrics:
     timeout: int = 0
     cancelled: int = 0
     batches: int = 0
+    prefill_batches: int = 0
+    decode_steps: int = 0
+    total_active_requests: int = 0
+    max_running_requests: int = 0
     total_batch_size: int = 0
     total_queue_wait: float = 0.0
     total_service_time: float = 0.0
