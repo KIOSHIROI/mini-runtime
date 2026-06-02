@@ -1,4 +1,4 @@
-benchmark_results.csv
+*.csv
 .venv/
 __pycache__/
 *.pyc
