@@ -5,9 +5,9 @@ from mini_runtime.benchmark import run_benchmark ,run_continuous_benchmark, writ
 async def main():
     configs = [
         (20, 10, 4, 30.0, "spso"),
-        (20, 10, 4, 30.0, "lpso"),
-        (20, 10, 4, 30.0, "splo"),
-        (20, 10, 4, 30.0, "mixed"),
+        # (20, 10, 4, 30.0, "lpso"),
+        # (20, 10, 4, 30.0, "splo"),
+        # (20, 10, 4, 30.0, "mixed"),
     ]
     
     rows = []
