@@ -6,6 +6,7 @@ class Metrics:
     success: int = 0
     timeout: int = 0
     cancelled: int = 0
+    oom: int = 0
     batches: int = 0
     prefill_batches: int = 0
     decode_steps: int = 0

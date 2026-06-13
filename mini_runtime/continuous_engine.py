@@ -2,7 +2,8 @@ import asyncio
 from asyncio import Queue
 from .request import Request
 from .metrics import Metrics
-
+from .kv_cache import KVCacheManager, BlockTable
+from .config import BLOCK_SIZE, NUM_BLOCKS
 class ContinuousBatchingEngine:
     def __init__(
         self,
@@ -10,6 +11,8 @@ class ContinuousBatchingEngine:
         request_timeout: float = 30.0,
         prefill_time_per_token: float = 0.01,
         decode_time_per_token: float = 0.05,
+        num_blocks: int = NUM_BLOCKS,
+        block_size: int = BLOCK_SIZE,
     ):
         self.waiting_queue = Queue()
         self.running_requests = []
@@ -20,6 +23,12 @@ class ContinuousBatchingEngine:
         self.next_request_id = 0
         self.engine_task = None
         self.metrics = Metrics()
+        self.block_size = block_size
+
+        self.kv_manager = KVCacheManager(
+            num_blocks=num_blocks,
+            block_size=block_size,
+        )
         
     async def start(self):
         self.engine_task = asyncio.create_task(self.scheduler_loop())
@@ -33,11 +42,20 @@ class ContinuousBatchingEngine:
     async def admit_requests(self):
         while len(self.running_requests) < self.max_batch_size:
             try:
-                request = self.waiting_queue.get_nowait()
+                request: Request = self.waiting_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-                
+            
             request.start_time = asyncio.get_running_loop().time()
+            block_table = BlockTable(self.block_size)
+            can_allocate = self.kv_manager.allocate(block_table, request.prompt_tokens)
+            
+            if not can_allocate:
+                self.waiting_queue.task_done()
+                self.metrics.oom += 1
+                break
+            
+            request.block_table = block_table
             self.running_requests.append(request)
             self.metrics.max_running_requests = max(
                 self.metrics.max_running_requests, len(self.running_requests)
@@ -66,10 +84,12 @@ class ContinuousBatchingEngine:
             return
         
         active = len(self.running_requests) 
+               
             
         await asyncio.sleep(self.decode_time_per_token)
         
         self.metrics.decode_steps += 1
+        
         self.metrics.total_active_requests  += active  
           
         now = asyncio.get_running_loop().time()
@@ -81,7 +101,12 @@ class ContinuousBatchingEngine:
                 r.first_token_time = now
                 
             r.generated_tokens += 1
-        
+
+            if r.generated_tokens > r.block_table.capacity:
+                can_allocate = self.kv_manager.allocate(r.block_table, r.generated_tokens)
+                if not can_allocate:
+                    self.metrics.oom += 1
+
             if r.generated_tokens >= r.max_new_tokens:
                 finished.append(r)
         
@@ -91,6 +116,7 @@ class ContinuousBatchingEngine:
         
     
     def finish_request(self, request: Request, finish_time: float):
+        self.kv_manager.free(request.block_table)
         if request.future.done():
             self.metrics.cancelled += 1
             return 
@@ -153,11 +179,14 @@ class ContinuousBatchingEngine:
         success = self.metrics.success 
         decode_steps = self.metrics.decode_steps
         
+        kv_snapshot = self.kv_manager.snapshot()
+        
         return {
             "submitted": self.metrics.submitted,
             "success": self.metrics.success,
             "timeout": self.metrics.timeout,
             "cancelled": self.metrics.cancelled,
+            "oom": self.metrics.oom,
             "prefill_batches": self.metrics.prefill_batches,
             "decode_steps": self.metrics.decode_steps,
             "avg_active_requests": (
@@ -188,6 +217,7 @@ class ContinuousBatchingEngine:
                 self.metrics.total_output_tokens / self.metrics.total_service_time
                 if self.metrics.total_service_time > 0 else 0
             ),
+            "kv_cache": kv_snapshot,
         }
     async def shutdown(self):
         await self.waiting_queue.join()

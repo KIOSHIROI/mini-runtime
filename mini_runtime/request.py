@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import asyncio
-
+from .kv_cache import BlockTable
 @dataclass
 class Request:
     request_id: int
@@ -9,7 +9,7 @@ class Request:
     future: asyncio.Future
     prompt_tokens: int
     max_new_tokens: int 
-    
+
     generated_tokens: int = 0
     prefill_done: bool = False
     first_token_time: float | None = None
@@ -17,3 +17,6 @@ class Request:
     finish_time: float | None = None
     ttft: float | None = None
     tpot: float | None = None
+    
+    block_table: BlockTable | None = None 
+    
