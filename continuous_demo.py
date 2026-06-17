@@ -1,13 +1,14 @@
 import asyncio
 from mini_runtime.continuous_engine import ContinuousBatchingEngine
 from mini_runtime.benchmark import run_benchmark ,run_continuous_benchmark, write_metrics_csv
-
+from mini_runtime.backends.native_backend import NativeBackend
 async def main():
+    backend = NativeBackend("~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct")
     configs = [
-        (20, 10, 4, 30.0, "spso"),
-        # (20, 10, 4, 30.0, "lpso"),
-        # (20, 10, 4, 30.0, "splo"),
-        # (20, 10, 4, 30.0, "mixed"),
+        (20, 10, 4, 30.0, "spso", backend),
+        # (20, 10, 4, 30.0, "lpso", backend),
+        # (20, 10, 4, 30.0, "splo", backend),
+        # (20, 10, 4, 30.0, "mixed", backend),
     ]
     
     rows = []
@@ -15,17 +16,6 @@ async def main():
         results, metrics = await run_continuous_benchmark(*config)
         rows.append(metrics)
     
-    for config in configs:
-        results, metrics = await run_benchmark(
-            num_requests=config[0],
-            concurrency=config[1],
-            max_batch_size=config[2],
-            num_workers=3,
-            request_timeout=config[3],
-            workload_kind=config[4],
-        )
-        rows.append(metrics)
-        
     # for metrics in rows:
     #     print(metrics)
 

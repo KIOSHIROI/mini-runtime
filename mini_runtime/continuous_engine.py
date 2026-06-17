@@ -4,22 +4,24 @@ from .request import Request
 from .metrics import Metrics
 from .kv_cache import KVCacheManager, BlockTable
 from .config import BLOCK_SIZE, NUM_BLOCKS
+from .backends.native_backend import NativeBackend
+
 class ContinuousBatchingEngine:
     def __init__(
         self,
+        backend = None,
         max_batch_size: int = 4,
         request_timeout: float = 30.0,
-        prefill_time_per_token: float = 0.01,
-        decode_time_per_token: float = 0.05,
         num_blocks: int = NUM_BLOCKS,
         block_size: int = BLOCK_SIZE,
     ):
+        self.backend = backend
+        
         self.waiting_queue = Queue()
         self.running_requests = []
         self.max_batch_size = max_batch_size
         self.request_timeout = request_timeout
-        self.prefill_time_per_token = prefill_time_per_token
-        self.decode_time_per_token = decode_time_per_token
+
         self.next_request_id = 0
         self.engine_task = None
         self.metrics = Metrics()
@@ -64,6 +66,14 @@ class ContinuousBatchingEngine:
             self.waiting_queue.task_done()
     
     async def prefill_new_requests(self):
+        """_summary_
+        处理 running_request 列表中的 Request
+        将每个请求放到 asyncio 的线程池中
+        由后端模型完成 Prefill 得到生成的第一个 token
+        将该 token 标记为 request 生成的最后一个 token
+        将 request 标记为 prefill_done
+        
+        """
         new_requests = [r for r in self.running_requests if not r.prefill_done]
         
         if not new_requests:
@@ -71,11 +81,17 @@ class ContinuousBatchingEngine:
         
         self.metrics.prefill_batches += 1
         
-        prefill_time = max(r.prompt_tokens for r in new_requests) * \
-        self.prefill_time_per_token
-        await asyncio.sleep(prefill_time)
-        
         for r in new_requests:
+            first_token =await asyncio.to_thread(
+                self.backend.prefill,
+                r.request_id,
+                r.prompt,
+                ) # to_thread 避免阻塞事件循环
+
+            r._last_token = first_token 
+            r._generated_token_ids.append(first_token)
+            r.generated_tokens = 1
+            r.first_token_time = asyncio.get_running_loop().time()
             r.prefill_done = True
     
     async def decode_one_step(self):
@@ -85,8 +101,6 @@ class ContinuousBatchingEngine:
         
         active = len(self.running_requests) 
                
-            
-        await asyncio.sleep(self.decode_time_per_token)
         
         self.metrics.decode_steps += 1
         
@@ -101,13 +115,21 @@ class ContinuousBatchingEngine:
                 r.first_token_time = now
                 
             r.generated_tokens += 1
+            next_token = await asyncio.to_thread(
+                self.backend.decode,
+                r.request_id,
+                r._last_token,
+            )
+            if next_token is not None:
+                r._generated_token_ids.append(next_token)
+            r._last_token = next_token
 
             if r.generated_tokens > r.block_table.capacity:
                 can_allocate = self.kv_manager.allocate(r.block_table, r.generated_tokens)
                 if not can_allocate:
                     self.metrics.oom += 1
 
-            if r.generated_tokens >= r.max_new_tokens:
+            if r.generated_tokens >= r.max_new_tokens or r._last_token is None:
                 finished.append(r)
         
         for r in finished:
@@ -117,6 +139,7 @@ class ContinuousBatchingEngine:
     
     def finish_request(self, request: Request, finish_time: float):
         self.kv_manager.free(request.block_table)
+        self.backend.release(request.request_id)
         if request.future.done():
             self.metrics.cancelled += 1
             return 
@@ -147,7 +170,17 @@ class ContinuousBatchingEngine:
         self.metrics.total_queue_wait += queue_wait
         self.metrics.total_service_time += service_time
         
-    async def submit(self, prompt: str, prompt_tokens: int = 32, max_new_tokens: int = 32):
+    async def submit(self, prompt: str, max_new_tokens: int = 128):
+        """_summary_
+        用户调用该函数提交一个生成请求
+        
+        """
+        message = [{"role": "user", "content": prompt}]
+        chat_text = self.backend.tokenizer.apply_chat_template(
+            message, tokenize=False, add_generation_prompt=True
+        )
+        input_ids = self.backend.tokenizer.encode(chat_text)
+        prompt_tokens = len(input_ids)
         loop = asyncio.get_running_loop()
         future = loop.create_future()
         

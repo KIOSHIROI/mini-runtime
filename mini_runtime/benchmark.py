@@ -1,6 +1,7 @@
 from .runtime import MiniRuntime
 from .continuous_engine import ContinuousBatchingEngine
 from .workload import make_workload
+from .backends.native_backend import NativeBackend
 import asyncio
 import csv
 
@@ -62,8 +63,10 @@ async def run_continuous_benchmark(
     max_batch_size: int,
     request_timeout: float,
     workload_kind: str,
+    backend: NativeBackend,
 ):
     engine = ContinuousBatchingEngine(
+        backend = backend,
         max_batch_size=max_batch_size,
         request_timeout=request_timeout,
     )
@@ -77,7 +80,6 @@ async def run_continuous_benchmark(
         async with sem:
             return await engine.submit(
                 f"request-{i}",
-                prompt_tokens=item["prompt_tokens"],
                 max_new_tokens=item["max_new_tokens"],
             )
     

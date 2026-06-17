@@ -30,6 +30,12 @@ class NativeBackend:
         self._prompt_len: dict[int, int] = {}       # request_id → prompt长度
 
     def prefill(self, request_id: int, prompt: str) -> int:
+        """_summary_
+        将 prompt 编码为 token_id 序列，构建 position_id 序列
+        调用模型计算得到 logits 和 KV cache
+        保存 KV cache 和 prompt 长度
+        返回生成的第一个 token_id
+        """
         # 1. 编码 prompt（用对话模板，Qwen2.5-Instruct 必须有）
         messages = [{"role": "user", "content": prompt}]
         chat_text = self.tokenizer.apply_chat_template(
@@ -71,6 +77,7 @@ class NativeBackend:
             return None
         # 8. self._generated[request_id].append(next_token)
         self._generated[request_id].append(next_token)
+        
         # 9. return next_token
         return next_token
     def release(self, request_id: int):
