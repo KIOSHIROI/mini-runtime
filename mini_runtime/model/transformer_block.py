@@ -13,12 +13,12 @@ class TransformerBlock(nn.Module):
         self.norm1 = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.norm2 = RMSNorm(config.hidden_size, config.rms_norm_eps)
         
-    def forward(self, x, position_ids, past_kv):
+    def forward(self, x, position_ids, past_kv, attention_mask):
         """
         Pre_Norm 架构 
         残差连接
         """
-        x_attn, K_cache, V_cache = self.attention(self.norm1(x), position_ids, past_kv)
+        x_attn, K_cache, V_cache = self.attention(self.norm1(x), position_ids, past_kv, attention_mask)
         x = x + x_attn
         
         x = x + self.mlp(self.norm2(x))

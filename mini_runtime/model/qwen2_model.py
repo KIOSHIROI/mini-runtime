@@ -19,16 +19,16 @@ class Qwen2Model(nn.Module):
         
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
     
-    def forward(self, input_ids, position_ids, past_key_values=None):
+    def forward(self, input_ids, position_ids, past_key_values=None, attention_mask=None):
         x = self.embed_tokens(input_ids)
         
         present_key_values = []
         for i, layer in enumerate(self.layers):
             past_kv = None if past_key_values is None else past_key_values[i]
             
-            x, new_k, new_v = layer(x, position_ids, past_kv)
+            x, new_k, new_v = layer(x, position_ids, past_kv, attention_mask)
             
-            present_key_values.append((new_k, new_v))
+            present_key_values.append((new_k, new_v)) # [layers, kv, num_heads, seq_len, head_dim]
         
         x = self.norm(x) # (batch, seq_len, hidden_size)
         

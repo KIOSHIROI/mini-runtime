@@ -80,6 +80,76 @@ class NativeBackend:
         
         # 9. return next_token
         return next_token
+    
+    def batch_decode(self, requests: list[tuple[int, int]]) -> list:
+        """_summary_
+        requests: [(request_id, token_id), ...]
+        return [next_token_id, ...]
+        """
+        B = len(requests)
+        request_kvs = []
+        request_positions = []
+        max_past_len = 0
+        for request_id, token_id in requests:
+            request_kvs.append(self._kv.get(request_id, None))
+            position = self._prompt_len.get(request_id, 0) + self._generated.get(request_id, []).__len__() - 1
+            request_positions.append(position)
+            past_lens = self._kv[request_id][0][0].shape[2] # [layer0:(K_0 [batch, num_head, len, head_dim], V_0 ...) ...]
+            max_past_len = max(max_past_len, past_lens)
+
+        # pad KV cache
+        pad_kv_caches = []
+        for kv in request_kvs:
+            pad_kv = kv[:]
+            for i in range(len(pad_kv)):
+                k, v = pad_kv[i]
+                pad_len = max_past_len - k.size(2)
+                if pad_len > 0:
+                    k_pad = torch.zeros(k.size(0), k.size(1), pad_len, k.size(3))
+                    v_pad = torch.zeros(v.size(0), v.size(1), pad_len, v.size(3))
+                    k = torch.cat([k, k_pad], dim=2)
+                    v = torch.cat([v, v_pad], dim=2)
+                pad_kv[i] = (k, v)
+            pad_kv_caches.append(pad_kv)
+
+        batched_kvs = []
+        num_layers = len(pad_kv_caches[0])
+        for layer_idx in range(num_layers):
+            Ks = torch.cat([pad_kv_caches[r][layer_idx][0] for r in range(B)], dim=0)
+            Vs = torch.cat([pad_kv_caches[r][layer_idx][1] for r in range(B)], dim=0)
+            batched_kvs.append((Ks, Vs))
+
+        attention_mask = torch.ones(len(requests), 1, 1, max_past_len + 1).bool()  # [B, 1, 1, total_len]
+        for i, (request_id, token_id) in enumerate(requests):
+            past_len = self._kv[request_id][0][0].shape[2]
+            attention_mask[i, :, :, :past_len] = False
+            attention_mask[i, :, :, max_past_len] = False
+        input_ids = torch.tensor([[token_id] for _, token_id in requests])
+        position_ids = torch.tensor([[pos] for pos in request_positions])
+
+        logits, new_kvs = self.model(input_ids, position_ids, past_key_values=batched_kvs, attention_mask=attention_mask)
+        next_tokens = []
+
+        for i, (request_id, token_id) in enumerate(requests):
+            next_token = logits[i, -1, :].argmax().item()
+            if next_token == self.tokenizer.eos_token_id:
+                next_tokens.append(None)
+            else:
+                next_tokens.append(next_token)
+                self._generated[request_id].append(next_token)
+                # 更新 KV cache
+                new_kv = []
+                for layer_kv in new_kvs:
+                    k, v = layer_kv
+                    past_len = self._kv[request_id][0][0].shape[2]
+                    new_k = k[i:i+1, :, :past_len+1, :]
+                    new_v = v[i:i+1, :, :past_len+1, :]
+                    new_kv.append((new_k, new_v))
+                self._kv[request_id] = new_kv
+
+        return next_tokens
+        
+        
     def release(self, request_id: int):
         self._kv.pop(request_id, None)
         self._generated.pop(request_id, None)

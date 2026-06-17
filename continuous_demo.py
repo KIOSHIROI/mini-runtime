@@ -1,35 +1,46 @@
 import asyncio
-from mini_runtime.continuous_engine import ContinuousBatchingEngine
-from mini_runtime.benchmark import run_benchmark ,run_continuous_benchmark, write_metrics_csv
+import os
+import csv
+from datetime import datetime
 from mini_runtime.backends.native_backend import NativeBackend
+from mini_runtime.benchmark import run_benchmark, run_continuous_benchmark, write_metrics_csv
+
 async def main():
     backend = NativeBackend("~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct")
+
+    name = input("实验名称: ").strip()
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    csv_path = "continuous_metrics.csv"
+
+    # 去重：检查已有 CSV 中的实验名，重名自动加 (n)
+    if os.path.exists(csv_path):
+        with open(csv_path, "r") as f:
+            reader = csv.DictReader(f)
+            existing_names = [row.get("experiment_name", "") for row in reader]
+        base = name
+        n = 1
+        while name in existing_names:
+            name = f"{base}({n})"
+            n += 1
+
     configs = [
-        (20, 10, 4, 30.0, "spso", backend),
-        # (20, 10, 4, 30.0, "lpso", backend),
-        # (20, 10, 4, 30.0, "splo", backend),
-        # (20, 10, 4, 30.0, "mixed", backend),
+        # (20, 10, 4, 30.0, "spso", backend),
+        (20, 10, 4, 30.0, "lpso", backend),
+        (20, 10, 4, 30.0, "splo", backend),
+        (20, 10, 4, 30.0, "mixed", backend),
     ]
-    
+
     rows = []
     for config in configs:
         results, metrics = await run_continuous_benchmark(*config)
         rows.append(metrics)
-    
-    # for metrics in rows:
-    #     print(metrics)
 
-    # Ensure CSV header covers all metric fields across rows.
-    fieldnames: list[str] = []
+    # 加实验元信息
     for row in rows:
-        for key in row.keys():
-            if key not in fieldnames:
-                fieldnames.append(key)
-    for row in rows:
-        for key in fieldnames:
-            row.setdefault(key, "")
+        row["experiment_name"] = name
+        row["timestamp"] = timestamp
 
-    write_metrics_csv("continuous_metrics.csv", rows)
+    write_metrics_csv(csv_path, rows, mode="a")
 
 if __name__ == "__main__":
     asyncio.run(main())

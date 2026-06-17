@@ -21,7 +21,7 @@ class Attention(nn.Module):
         
         self.freqs_cis = precompute_inv_cis(self.head_dim, self.config.max_position_embeddings, self.config.rope_theta)
 
-    def forward(self, x, position_ids,past_kv):
+    def forward(self, x, position_ids, past_kv, attention_mask=None):
         batch, seq_len, _ = x.shape
         
         Q = self.q_proj(x).view(-1, seq_len, self.num_heads, self.head_dim).transpose(1, 2) # batch, num_heads, seq_len, head_dim
@@ -42,7 +42,8 @@ class Attention(nn.Module):
 
         attn_output = nn.functional.scaled_dot_product_attention(
             Q, K, V, 
-            is_causal=(Q.shape[2]>1)
+            attn_mask=attention_mask,
+            is_causal=(Q.shape[2]>1),
             )
 
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch, seq_len, -1)

@@ -4,6 +4,7 @@ from .workload import make_workload
 from .backends.native_backend import NativeBackend
 import asyncio
 import csv
+import os
 
 async def run_benchmark(
     num_requests: int,
@@ -110,11 +111,25 @@ async def run_continuous_benchmark(
     
     return results, metrics
 
-def write_metrics_csv(path: str, rows: list[dict]):
+def write_metrics_csv(path: str, rows: list[dict], mode: str = "w"):
     if not rows:
         return
 
+    existing_rows = []
+    if mode == "a" and os.path.exists(path):
+        with open(path, "r", newline="") as f:
+            reader = csv.DictReader(f)
+            existing_rows = list(reader)
+
+    all_rows = existing_rows + rows
+
+    fieldnames = []
+    for row in all_rows:
+        for key in row.keys():
+            if key not in fieldnames:
+                fieldnames.append(key)
+
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=rows[0].keys())
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(all_rows)

@@ -110,16 +110,19 @@ class ContinuousBatchingEngine:
                 
         finished = []
         
-        for r in self.running_requests:
+        batched = [(r.request_id, r._last_token) for r in self.running_requests]
+        
+        next_tokens = await asyncio.to_thread(
+            self.backend.batch_decode,
+            batched,
+        )
+        
+        for r, next_token in zip(self.running_requests, next_tokens):                
             if r.first_token_time is None:
                 r.first_token_time = now
-                
+                            
             r.generated_tokens += 1
-            next_token = await asyncio.to_thread(
-                self.backend.decode,
-                r.request_id,
-                r._last_token,
-            )
+
             if next_token is not None:
                 r._generated_token_ids.append(next_token)
             r._last_token = next_token
