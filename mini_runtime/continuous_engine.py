@@ -6,7 +6,7 @@ from .kv_cache import KVCacheManager, BlockTable
 from .config import BLOCK_SIZE, NUM_BLOCKS
 from .backends.native_backend import NativeBackend
 
-class ContinuousBatchingEngine:
+class Engine:
     def __init__(
         self,
         backend = None,
@@ -30,7 +30,12 @@ class ContinuousBatchingEngine:
         self.kv_manager = KVCacheManager(
             num_blocks=num_blocks,
             block_size=block_size,
+            num_layers=backend.model.config.num_layers,
+            num_kv_heads=backend.model.config.num_kv_heads,
+            head_dim=backend.model.config.head_dim
         )
+        
+        self.backend.kv_manager = self.kv_manager 
         
     async def start(self):
         self.engine_task = asyncio.create_task(self.scheduler_loop())
@@ -86,6 +91,7 @@ class ContinuousBatchingEngine:
                 self.backend.prefill,
                 r.request_id,
                 r.prompt,
+                r.block_table.block_ids
                 ) # to_thread 避免阻塞事件循环
 
             r._last_token = first_token 
@@ -110,7 +116,12 @@ class ContinuousBatchingEngine:
                 
         finished = []
         
-        batched = [(r.request_id, r._last_token) for r in self.running_requests]
+        for r in self.running_requests:
+            total = r.prompt_tokens + r.generated_tokens
+            if total > r.block_table.capacity:
+                self.kv_manager.allocate(r.block_table, total)
+                
+        batched = [(r.request_id, r._last_token, r.block_table.block_ids) for r in self.running_requests]
         
         next_tokens = await asyncio.to_thread(
             self.backend.batch_decode,
@@ -126,11 +137,6 @@ class ContinuousBatchingEngine:
             if next_token is not None:
                 r._generated_token_ids.append(next_token)
             r._last_token = next_token
-
-            if r.generated_tokens > r.block_table.capacity:
-                can_allocate = self.kv_manager.allocate(r.block_table, r.generated_tokens)
-                if not can_allocate:
-                    self.metrics.oom += 1
 
             if r.generated_tokens >= r.max_new_tokens or r._last_token is None:
                 finished.append(r)

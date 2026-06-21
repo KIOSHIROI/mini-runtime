@@ -1,5 +1,5 @@
 import asyncio
-from mini_runtime.continuous_engine import ContinuousBatchingEngine
+from mini_runtime.continuous_engine import Engine
 
 async def run_scene(name: str, num_blocks: int, block_size: int,
                     num_requests: int, max_batch_size: int,
@@ -16,7 +16,7 @@ async def run_scene(name: str, num_blocks: int, block_size: int,
     print(f"  max concurrent = {num_blocks // max(1, -( -(prompt_tokens + max_new_tokens) // block_size))} reqs")
     print(line)
 
-    engine = ContinuousBatchingEngine(
+    engine = Engine(
         max_batch_size=max_batch_size,
         request_timeout=request_timeout,
         num_blocks=num_blocks,

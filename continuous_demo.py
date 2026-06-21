@@ -24,7 +24,7 @@ async def main():
             n += 1
 
     configs = [
-        # (20, 10, 4, 30.0, "spso", backend),
+        (20, 10, 4, 30.0, "spso", backend),
         (20, 10, 4, 30.0, "lpso", backend),
         (20, 10, 4, 30.0, "splo", backend),
         (20, 10, 4, 30.0, "mixed", backend),

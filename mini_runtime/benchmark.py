@@ -1,5 +1,5 @@
 from .runtime import MiniRuntime
-from .continuous_engine import ContinuousBatchingEngine
+from .continuous_engine import Engine
 from .workload import make_workload
 from .backends.native_backend import NativeBackend
 import asyncio
@@ -66,7 +66,7 @@ async def run_continuous_benchmark(
     workload_kind: str,
     backend: NativeBackend,
 ):
-    engine = ContinuousBatchingEngine(
+    engine = Engine(
         backend = backend,
         max_batch_size=max_batch_size,
         request_timeout=request_timeout,
