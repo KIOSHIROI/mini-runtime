@@ -1,11 +1,8 @@
 """Layer-by-layer comparison: our Qwen2Model vs HF original."""
 import torch
-import os
 
 # ---- 路径 ----
-BASE = os.path.expanduser("~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct")
-SNAPSHOT = os.path.join(BASE, "snapshots")
-MODEL_PATH = os.path.join(SNAPSHOT, sorted(os.listdir(SNAPSHOT))[0])
+MODEL_PATH = "Qwen/Qwen2.5-0.5B-Instruct"
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
 print("Loading models...")

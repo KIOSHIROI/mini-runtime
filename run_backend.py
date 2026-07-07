@@ -1,7 +1,7 @@
 from mini_runtime.backends.native_backend import NativeBackend
 
 def main():
-    backend = NativeBackend("~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct")
+    backend = NativeBackend("Qwen/Qwen2.5-0.5B-Instruct")
     token = backend.prefill(0, "介绍一下杭州")
     for _ in range(100):
         token = backend.decode(0, token)

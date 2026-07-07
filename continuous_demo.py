@@ -6,7 +6,7 @@ from mini_runtime.backends.native_backend import NativeBackend
 from mini_runtime.benchmark import run_benchmark, run_continuous_benchmark, write_metrics_csv
 
 async def main():
-    backend = NativeBackend("~/.cache/huggingface/hub/models--Qwen--Qwen2.5-0.5B-Instruct")
+    backend = NativeBackend("Qwen/Qwen2.5-0.5B-Instruct")
 
     name = input("实验名称: ").strip()
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -14,7 +14,7 @@ async def main():
 
     # 去重：检查已有 CSV 中的实验名，重名自动加 (n)
     if os.path.exists(csv_path):
-        with open(csv_path, "r") as f:
+        with open(csv_path, "r", newline="") as f:
             reader = csv.DictReader(f)
             existing_names = [row.get("experiment_name", "") for row in reader]
         base = name
