@@ -6,8 +6,10 @@ from ..model.loader import load_qwen2_weights
 from ..kv_cache import KVCacheManager
 import os
 
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 class NativeBackend:
-    def __init__(self, model_path: str = "Qwen/Qwen2.5-0.5B-Instruct"):
+    def __init__(self, model_path: str = "Qwen/Qwen2.5-0.5B-Instruct", device: torch.device = DEVICE):
         model_path = os.path.expanduser(model_path)
         self.kv_manager = None
         # 如果本地路径但没有 tokenizer 文件 → 在 snapshots/ 下找
@@ -22,8 +24,11 @@ class NativeBackend:
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
         self.model = Qwen2Model(Qwen2Config())
-        load_qwen2_weights(self.model, model_path)
+        self.device = device
+        load_qwen2_weights(self.model, model_path, device)
         self.model.eval()
+        self.model.to(device)
+
 
         self._past_len: dict[int, int] = {}
         self._generated: dict[int, list[int]] = {}  # request_id → 已生成token id
@@ -40,9 +45,9 @@ class NativeBackend:
         chat_text = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        input_ids = self.tokenizer(chat_text, return_tensors="pt").input_ids
+        input_ids = self.tokenizer(chat_text, return_tensors="pt").input_ids.to(self.device)
         # 2. 构造 position_ids: [[0, 1, 2, ..., L-1]]
-        position_ids = torch.arange(input_ids.size(1)).unsqueeze(0)
+        position_ids = torch.arange(input_ids.size(1), device=self.device).unsqueeze(0)
         # 3. 调用 model(input_ids, position_ids)
 
         logits, past_key_values = self.model(input_ids, position_ids)
@@ -85,14 +90,15 @@ class NativeBackend:
                 layer_idx, r_block_ids_list, past_lens, max_past_len
             )
             batched_kvs.append((K_batch, V_batch))
-        # attenion_mask
-        attention_mask = torch.ones(B, 1, 1, max_past_len + 1).bool()  # [B, 1, 1, total_len]
+        # attenion_mask：decode 时 query 只有 1 个新 token，需 attend 到过去所有 token + 自己
+        attention_mask = torch.ones(B, 1, 1, max_past_len + 1, device=self.device).bool() # [B, 1, 1, total_len]
         for i in range(B):
-            attention_mask[i, :, :, :past_lens[i]] = False
-            attention_mask[i, :, :, max_past_len] = False
+            # 只 mask 掉不同请求之间的 padding 位
+            if past_lens[i] < max_past_len:
+                attention_mask[i, :, :, past_lens[i]:max_past_len] = False
             
-        input_ids = torch.tensor([[token_id] for _, token_id, _ in requests])
-        position_ids = torch.tensor([[pos] for pos in request_positions])
+        input_ids = torch.tensor([[token_id] for _, token_id, _ in requests], device=self.device)
+        position_ids = torch.tensor([[pos] for pos in request_positions], device=self.device)
 
         logits, new_kvs = self.model(
             input_ids, position_ids, 

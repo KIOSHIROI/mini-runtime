@@ -1,4 +1,5 @@
 import asyncio
+import torch
 from asyncio import Queue
 from .request import Request
 from .metrics import Metrics
@@ -14,6 +15,7 @@ class Engine:
         request_timeout: float = 30.0,
         num_blocks: int = NUM_BLOCKS,
         block_size: int = BLOCK_SIZE,
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         self.backend = backend
         
@@ -32,7 +34,8 @@ class Engine:
             block_size=block_size,
             num_layers=backend.model.config.num_layers,
             num_kv_heads=backend.model.config.num_kv_heads,
-            head_dim=backend.model.config.head_dim
+            head_dim=backend.model.config.head_dim,
+            device=device
         )
         
         self.backend.kv_manager = self.kv_manager 

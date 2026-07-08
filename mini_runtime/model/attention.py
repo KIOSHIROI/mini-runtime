@@ -19,16 +19,19 @@ class Attention(nn.Module):
         self.v_proj = nn.Linear(config.hidden_size, config.num_kv_heads * config.head_dim, bias=True)
         self.o_proj = nn.Linear(config.num_attention_heads * config.head_dim, config.hidden_size, bias=False)
         
-        self.freqs_cis = precompute_inv_cis(self.head_dim, self.config.max_position_embeddings, self.config.rope_theta)
+        cos, sin = precompute_inv_cis(self.head_dim, self.config.max_position_embeddings, self.config.rope_theta)
+        self.register_buffer("cos_cached", cos, persistent=False)
+        self.register_buffer("sin_cached", sin, persistent=False)
 
     def forward(self, x, position_ids, past_kv, attention_mask=None):
         batch, seq_len, _ = x.shape
-        
+
         Q = self.q_proj(x).view(-1, seq_len, self.num_heads, self.head_dim).transpose(1, 2) # batch, num_heads, seq_len, head_dim
         K = self.k_proj(x).view(-1, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2) # batch, num_kv_heads, seq_len, head_dim
         V = self.v_proj(x).view(-1, seq_len, self.num_kv_heads, self.head_dim).transpose(1, 2) # batch, num_kv_heads, seq_len, head_dim
-        Q = apply_rotary_pos_emb(Q, self.freqs_cis, position_ids)
-        K = apply_rotary_pos_emb(K, self.freqs_cis, position_ids)
+        freqs_cis = (self.cos_cached, self.sin_cached)
+        Q = apply_rotary_pos_emb(Q, freqs_cis, position_ids)
+        K = apply_rotary_pos_emb(K, freqs_cis, position_ids)
         
         if past_kv is not None:
             K = torch.cat([past_kv[0], K], dim=2)

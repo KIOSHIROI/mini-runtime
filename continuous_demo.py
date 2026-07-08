@@ -25,9 +25,9 @@ async def main():
 
     configs = [
         (20, 10, 4, 30.0, "spso", backend),
-        (20, 10, 4, 30.0, "lpso", backend),
-        (20, 10, 4, 30.0, "splo", backend),
-        (20, 10, 4, 30.0, "mixed", backend),
+        # (20, 10, 4, 30.0, "lpso", backend),
+        # (20, 10, 4, 30.0, "splo", backend),
+        # (20, 10, 4, 30.0, "mixed", backend),
     ]
 
     rows = []

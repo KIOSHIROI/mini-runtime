@@ -6,7 +6,7 @@ from safetensors.torch import load_file
 from huggingface_hub import snapshot_download
 from .qwen2_model import Qwen2Model
 
-def load_qwen2_weights(model: Qwen2Model, model_path: str) -> None:
+def load_qwen2_weights(model: Qwen2Model, model_path: str, device: torch.device) -> None:
     expanded = os.path.expanduser(model_path)
     if os.path.isdir(expanded):
         model_path = expanded
@@ -46,4 +46,5 @@ def load_qwen2_weights(model: Qwen2Model, model_path: str) -> None:
         for key, tensor in mapped_state_dict.items()
     }
     
+    model.to(device)
     model.load_state_dict(final_state_dict, strict=True)

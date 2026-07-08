@@ -5,10 +5,10 @@ async def main():
     all_metrics = []
     # n_r, concur, bs, n_w, to
     configs = [
-        (20, 10, 4, 3, 30.0, "spso"),
-        (20, 10, 4, 3, 30.0, "lpso"),
-        (20, 10, 4, 3, 30.0, "splo"),
-        (20, 10, 4, 3, 30.0, "mixed"),
+        (20, 16, 16, 3, 30.0, "spso"),
+        (20, 16, 16, 3, 30.0, "lpso"),
+        (20, 16, 16, 3, 30.0, "splo"),
+        (20, 16, 16, 3, 30.0, "mixed"),
     ]
     for config in configs:
         _, metrics = await run_benchmark(
