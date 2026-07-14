@@ -12,6 +12,7 @@ class Request:
     max_new_tokens: int 
 
     _last_token: int = 0
+    token_ids: list = field(default_factory=list)  # prompt 的 token 序列，用于 prefix matching
     _generated_token_ids: list = field(default_factory=list) # 函数默认参数求值陷阱
     generated_tokens: int = 0
     prefill_done: bool = False

@@ -202,7 +202,8 @@ class Engine:
             submit_time = loop.time(),
             future = future,
             prompt_tokens = prompt_tokens,
-            max_new_tokens = max_new_tokens
+            max_new_tokens = max_new_tokens,
+            token_ids = input_ids,          # 保存完整 token 序列，用于 prefix matching
         )
         
         self.next_request_id += 1

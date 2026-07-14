@@ -6,8 +6,8 @@ def main():
     config = backend.model.config
 
     # 初始化 KV cache 管理器
-    block_size = 128
-    num_blocks = 16  # 16 × 128 = 2048 tokens，足够 prompt + 生成
+    block_size = 16
+    num_blocks = 128  # 16 × 128 = 2048 tokens，足够 prompt + 生成
     kv_manager = KVCacheManager(
         num_blocks=num_blocks,
         block_size=block_size,
