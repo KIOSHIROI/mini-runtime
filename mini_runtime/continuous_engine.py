@@ -58,7 +58,7 @@ class Engine:
             
             request.start_time = asyncio.get_running_loop().time()
             block_table = BlockTable(self.block_size)
-            can_allocate = self.kv_manager.allocate(block_table, request.prompt_tokens)
+            can_allocate = self.kv_manager.allocate(block_table, len(request.token_ids))
             
             if not can_allocate:
                 self.waiting_queue.task_done()
@@ -121,7 +121,7 @@ class Engine:
         oom_requests = []
 
         for r in self.running_requests:
-            total = r.prompt_tokens + r.generated_tokens
+            total = len(r.token_ids) + r.generated_tokens
             if total > r.block_table.capacity:
                 success = self.kv_manager.allocate(r.block_table, total)
                 if not success:
@@ -210,18 +210,16 @@ class Engine:
             message, tokenize=False, add_generation_prompt=True
         )
         input_ids = self.backend.tokenizer.encode(chat_text)
-        prompt_tokens = len(input_ids)
         loop = asyncio.get_running_loop()
         future = loop.create_future()
-        
+
         request = Request(
             request_id = self.next_request_id,
             prompt = prompt,
+            token_ids = input_ids,
+            max_new_tokens = max_new_tokens,
             submit_time = loop.time(),
             future = future,
-            prompt_tokens = prompt_tokens,
-            max_new_tokens = max_new_tokens,
-            token_ids = input_ids,          # 保存完整 token 序列，用于 prefix matching
         )
         
         self.next_request_id += 1
