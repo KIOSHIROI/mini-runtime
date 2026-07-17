@@ -118,11 +118,26 @@ class Engine:
         now = asyncio.get_running_loop().time()
                 
         finished = []
-        
+        oom_requests = []
+
         for r in self.running_requests:
             total = r.prompt_tokens + r.generated_tokens
             if total > r.block_table.capacity:
-                self.kv_manager.allocate(r.block_table, total)
+                success = self.kv_manager.allocate(r.block_table, total)
+                if not success:
+                    oom_requests.append(r)
+
+        for r in oom_requests:
+            self.running_requests.remove(r)
+            self.kv_manager.free(r.block_table)
+            self.metrics.oom += 1
+            if not r.future.done():
+                r.future.set_result({
+                    "request_id": r.request_id,
+                    "error": "OOM",
+                })
+            else:
+                self.metrics.cancelled += 1
                 
         batched = [(r.request_id, r._last_token, r.block_table.block_ids) for r in self.running_requests]
         
