@@ -165,21 +165,23 @@ class Engine:
         
     
     def finish_request(self, request: Request, finish_time: float):
-        self.kv_manager.free(request.block_table)
+        if request.block_table:
+            self.kv_manager.free(request.block_table)
         self.backend.release(request.request_id)
         if request.future.done():
             self.metrics.cancelled += 1
-            return 
-        
+            return
+
         queue_wait = request.start_time - request.submit_time
         service_time = finish_time - request.start_time
-        ttft = request.first_token_time - request.submit_time 
-        total = finish_time - request.submit_time 
+        ttft = (request.first_token_time - request.submit_time
+                if request.first_token_time is not None else None)
+        total = finish_time - request.submit_time
         tpot = (
             (finish_time - request.first_token_time) / request.generated_tokens
-            if request.generated_tokens else 0
+            if request.generated_tokens and request.first_token_time is not None else 0
         )
-        
+
         request.future.set_result({
             "request_id": request.request_id,
             "ttft": ttft,
@@ -190,7 +192,8 @@ class Engine:
             "service_time": service_time,
         })
         self.metrics.success += 1
-        self.metrics.total_ttft += ttft
+        if ttft is not None:
+            self.metrics.total_ttft += ttft
         self.metrics.total_tpot += tpot
         self.metrics.total_latency += total
         self.metrics.total_output_tokens += request.generated_tokens
@@ -281,11 +284,33 @@ class Engine:
             "kv_cache": kv_snapshot,
         }
     async def shutdown(self):
-        await self.waiting_queue.join()
-        
-        while self.running_requests:
-            await asyncio.sleep(0.001)
-            
+        # 取消等待队列中的请求
+        while not self.waiting_queue.empty():
+            try:
+                request = self.waiting_queue.get_nowait()
+                if not request.future.done():
+                    request.future.set_result({
+                        "request_id": request.request_id,
+                        "error": "cancelled",
+                    })
+                    self.metrics.cancelled += 1
+                self.waiting_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+
+        # 释放正在运行请求的资源
+        for request in self.running_requests:
+            if request.block_table:
+                self.kv_manager.free(request.block_table)
+            if not request.future.done():
+                request.future.set_result({
+                    "request_id": request.request_id,
+                    "error": "cancelled",
+                })
+                self.metrics.cancelled += 1
+
+        self.running_requests.clear()
+
         if self.engine_task:
             self.engine_task.cancel()
             await asyncio.gather(self.engine_task, return_exceptions=True)
