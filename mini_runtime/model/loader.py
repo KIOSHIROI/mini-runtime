@@ -42,7 +42,7 @@ def load_qwen2_weights(model: Qwen2Model, model_path: str, device: torch.device)
         mapped_state_dict["lm_head.weight"] = mapped_state_dict["embed_tokens.weight"].clone()
         
     final_state_dict = {
-        key: tensor.to(torch.float16)
+        key: tensor.to(torch.float16).to(device)
         for key, tensor in mapped_state_dict.items()
     }
     
