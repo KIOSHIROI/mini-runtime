@@ -43,10 +43,11 @@ class Attention(nn.Module):
         K = K.repeat_interleave(self.num_kv_groups, dim=1)
         V = V.repeat_interleave(self.num_kv_groups, dim=1)
 
+        is_causal = past_kv is None and seq_len > 1
         attn_output = nn.functional.scaled_dot_product_attention(
-            Q, K, V, 
+            Q, K, V,
             attn_mask=attention_mask,
-            is_causal=(Q.shape[2]>1),
+            is_causal=is_causal,
             )
 
         attn_output = attn_output.transpose(1, 2).contiguous().view(batch, seq_len, -1)
