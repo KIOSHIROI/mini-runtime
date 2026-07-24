@@ -13,6 +13,13 @@ class BlockTable:
     def __init__(self, block_size):
         self.block_size = block_size 
         self._block_ids = []
+        self._offset = 0 # 第一个 block 的起始位置
+    @property
+    def offset(self) -> int:
+        return self._offset
+    
+    def set_offset(self, offset: int) -> None:
+        self._offset = offset
     
     def append_block(self, physical_block_id: int) -> None:
         self._block_ids.append(physical_block_id)
@@ -23,7 +30,7 @@ class BlockTable:
 
     @property
     def capacity(self) -> int:
-        return self.num_blocks * self.block_size
+        return self.num_blocks * self.block_size - self._offset
     
     @property
     def block_ids(self) -> tuple[int, ...]:
@@ -56,15 +63,23 @@ class KVCacheManager: # 管理层，监控谁占用了哪些 block，负责分�
             return True 
         return False
     
+    def inc_ref(self, block_id: int) -> None:
+        """增加 block 引用计数（cache 持有或运行请求复用 prefix 时调用）"""
+        self.blocks[block_id].ref_count += 1
+
+    def dec_ref(self, block_id: int) -> None:
+        """减少 block 引用计数，归零才真正释放（cache evict 时调用）"""
+        block = self.blocks[block_id]
+        block.ref_count -= 1
+        if block.ref_count == 0:
+            self.used_blocks_ids.remove(block_id)
+            self.free_blocks_ids.append(block_id)
+            block.is_free = True
+            self.pool.release(block_id)
+
     def free(self, block_table: BlockTable) -> None:
         for block_id in block_table.block_ids:
-            self.blocks[block_id].ref_count -= 1
-            if self.blocks[block_id].ref_count == 0:
-                self.used_blocks_ids.remove(block_id)
-                self.free_blocks_ids.append(block_id)
-                self.blocks[block_id].is_free = True
-                self.pool.release(block_id)
-
+            self.dec_ref(block_id)
         block_table.clear()
         
     
@@ -106,7 +121,7 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
             return
 
         # 显式释放 GPU 内存
-        if self.device.type == "cuda":
+        if self.device == "cuda":
             for layer_kv in self._blocks[block_id]:
                 for tensor in layer_kv:
                     if tensor is not None:
@@ -150,16 +165,22 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
             bk[:, :, pos_in_block, :] = K_chunk[:, :, 0, :]
             bv[:, :, pos_in_block, :] = V_chunk[:, :, 0, :]
     
-    def read_layer(self, layer_idx, block_ids_list, past_len_list, max_past_len):
+    def read_layer(self, layer_idx, block_ids_list, past_len_list, max_past_len, offset_list=None):
         B = len(block_ids_list)
+        if offset_list is None:
+            offset_list = [0] * B
         K_list = []
         V_list = []
-        for block_ids, past_len in zip(block_ids_list, past_len_list):
+        for block_ids, past_len, offset in zip(block_ids_list, past_len_list, offset_list):
             # 跳过未初始化的 block（刚分配、还没写入数据的）
-            K_parts = [self._blocks[bid][layer_idx][0]
-                       for bid in block_ids if self._blocks[bid] is not None]
-            V_parts = [self._blocks[bid][layer_idx][1]
-                       for bid in block_ids if self._blocks[bid] is not None]
+            K_parts = []
+            V_parts = []
+            for i, bid in enumerate(block_ids):
+                if self._blocks[bid] is None:
+                    continue
+                start = offset if i == 0 else 0
+                K_parts.append(self._blocks[bid][layer_idx][0][:, :, start:, :])
+                V_parts.append(self._blocks[bid][layer_idx][1][:, :, start:, :])
             # 空列表防护：batch_size 可能为 0 或首次 prefill 前
             K_req = torch.cat(K_parts, dim=2) if K_parts else \
                 torch.zeros(1, self.num_kv_heads, 0, self.head_dim, device=self.device)

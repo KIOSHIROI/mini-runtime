@@ -4,8 +4,9 @@ from asyncio import Queue
 from .request import Request
 from .metrics import Metrics
 from .kv_cache import KVCacheManager, BlockTable
+from .prefix_cache import PrefixCache
 from .config import BLOCK_SIZE, NUM_BLOCKS
-from .backends.native_backend import NativeBackend
+from .backends.native_backend import NativeBackend, PrefillInput, BatchDecodeInput
 
 class Engine:
     def __init__(
@@ -37,8 +38,9 @@ class Engine:
             head_dim=backend.model.config.head_dim,
             device=device
         )
-        
-        self.backend.kv_manager = self.kv_manager 
+
+        self.backend.kv_manager = self.kv_manager
+        self.prefix_cache = PrefixCache(block_size=block_size)
         
     async def start(self):
         self.engine_task = asyncio.create_task(self.scheduler_loop())
@@ -55,49 +57,75 @@ class Engine:
                 request: Request = self.waiting_queue.get_nowait()
             except asyncio.QueueEmpty:
                 break
-            
+
             request.start_time = asyncio.get_running_loop().time()
+            match_result = self.prefix_cache.match(request.token_ids)
+            matched_blocks = match_result['matched_blocks']
+            num_matched_tokens = match_result['num_matched_tokens']
+            matched_offset = match_result['matched_offset']
+            num_matched_blocks = len(matched_blocks)
+
             block_table = BlockTable(self.block_size)
-            can_allocate = self.kv_manager.allocate(block_table, len(request.token_ids))
-            
-            if not can_allocate:
-                self.waiting_queue.task_done()
-                self.metrics.oom += 1
-                break
-            
+            block_table.set_offset(matched_offset)
+            # 1. 复用 matched blocks (运行请求引用 +1)
+            for bid in matched_blocks:
+                self.kv_manager.inc_ref(bid)
+                block_table.append_block(bid)
+            # 2. 为 remaining 分配新 block; OOM 时 evict prefix cache 重试
+            if match_result['remaining_tokens']:
+                can_allocate = self.kv_manager.allocate(block_table, len(request.token_ids))
+                while not can_allocate:
+                    evicted = self.prefix_cache.evict()
+                    if evicted is None:
+                        break
+                    for bid in evicted:
+                        self.kv_manager.dec_ref(bid)
+                    can_allocate = self.kv_manager.allocate(block_table, len(request.token_ids))
+                if not can_allocate:
+                    # 回滚已复用的 matched blocks
+                    for bid in matched_blocks:
+                        self.kv_manager.dec_ref(bid)
+                    self.waiting_queue.task_done()
+                    self.metrics.oom += 1
+                    break
+
             request.block_table = block_table
+            request.num_matched_tokens = num_matched_tokens
+            request.matched_offset = matched_offset
+            request.num_matched_blocks = num_matched_blocks
+            request.match_result = match_result
             self.running_requests.append(request)
             self.metrics.max_running_requests = max(
                 self.metrics.max_running_requests, len(self.running_requests)
             )
-            
+
             self.waiting_queue.task_done()
     
     async def prefill_new_requests(self):
-        """_summary_
-        处理 running_request 列表中的 Request
-        将每个请求放到 asyncio 的线程池中
-        由后端模型完成 Prefill 得到生成的第一个 token
-        将该 token 标记为 request 生成的最后一个 token
-        将 request 标记为 prefill_done
-        
-        """
+        """对未 prefill 的请求做 prefix-aware prefill，并把新 block 插入 prefix cache。"""
         new_requests = [r for r in self.running_requests if not r.prefill_done]
-        
         if not new_requests:
             return
-        
-        self.metrics.prefill_batches += 1
-        
-        for r in new_requests:
-            first_token =await asyncio.to_thread(
-                self.backend.prefill,
-                r.request_id,
-                r.prompt,
-                r.block_table.block_ids
-                ) # to_thread 避免阻塞事件循环
 
-            r._last_token = first_token 
+        self.metrics.prefill_batches += 1
+
+        for r in new_requests:
+            inp = PrefillInput(
+                request_id=r.request_id,
+                token_ids=r.token_ids,
+                block_ids=r.block_table.block_ids,
+                block_offset=r.block_table.offset,
+                skip_tokens=r.num_matched_tokens,
+                num_cached_blocks=r.num_matched_blocks,
+            )
+            first_token = await asyncio.to_thread(self.backend.prefill, inp)
+            # prefill 完成, 把新 block 插入 prefix cache (cache 持有, ref_count +1)
+            new_cache_blocks = self.prefix_cache.insert(
+                r.token_ids, list(r.block_table.block_ids), r.match_result)
+            for bid in new_cache_blocks:
+                self.kv_manager.inc_ref(bid)
+
+            r._last_token = first_token
             r._generated_token_ids.append(first_token)
             r.generated_tokens = 1
             r.first_token_time = asyncio.get_running_loop().time()
@@ -124,6 +152,13 @@ class Engine:
             total = len(r.token_ids) + r.generated_tokens
             if total > r.block_table.capacity:
                 success = self.kv_manager.allocate(r.block_table, total)
+                while not success:
+                    evicted = self.prefix_cache.evict()
+                    if evicted is None:
+                        break
+                    for bid in evicted:
+                        self.kv_manager.dec_ref(bid)
+                    success = self.kv_manager.allocate(r.block_table, total)
                 if not success:
                     oom_requests.append(r)
 
@@ -138,8 +173,13 @@ class Engine:
                 })
             else:
                 self.metrics.cancelled += 1
-                
-        batched = [(r.request_id, r._last_token, r.block_table.block_ids) for r in self.running_requests]
+
+        batched = [BatchDecodeInput(
+            request_id=r.request_id,
+            token_id=r._last_token,
+            block_ids=r.block_table.block_ids,
+            block_offset=r.matched_offset,
+        ) for r in self.running_requests]
         
         next_tokens = await asyncio.to_thread(
             self.backend.batch_decode,
@@ -190,6 +230,7 @@ class Engine:
             "generated_tokens": request.generated_tokens,
             "queue_wait": queue_wait,
             "service_time": service_time,
+            "output": self.backend.tokenizer.decode(request._generated_token_ids),
         })
         self.metrics.success += 1
         if ttft is not None:

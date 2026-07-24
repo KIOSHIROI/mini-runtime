@@ -17,7 +17,10 @@ class Request:
 
     # Prefix Cache 相关
     matched_blocks: list[int] = field(default_factory=list)  # 从 prefix cache 复用的 block
-    matched_tokens: int = 0                                     # 复用的 token 数量
+    num_matched_tokens: int = 0                                   # 复用的 token 数（= aligned）
+    matched_offset: int = 0                                     # block_table 第一个 block 的 offset
+    num_matched_blocks: int = 0                                 # 复用的 block 数
+    match_result: dict = field(default_factory=dict)           # match() 完整结果，供 prefill 后 insert 用
 
     # 生成相关
     generated_tokens: int = 0
