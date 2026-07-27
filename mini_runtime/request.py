@@ -25,6 +25,7 @@ class Request:
     # 生成相关
     generated_tokens: int = 0
     prefill_done: bool = False
+    prefill_progress: int = 0 # chunked prefill 进度，表示已 prefill 的 token 数 (含 prefix cache)
     _last_token: int = 0
     _generated_token_ids: list[int] = field(default_factory=list)
 

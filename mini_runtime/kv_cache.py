@@ -157,6 +157,17 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
                      for k, v in kv_layers]
             self.write_block(block_id, chunk)
             
+    def write_chunk_kv(self, block_ids, kv_layers, token_start, block_offset):
+        chunk_len = kv_layers[0][0].shape[2]
+        bs = self.block_size 
+        for i in range(chunk_len):
+            global_pos = block_offset + token_start + i
+            block_idx = global_pos // bs
+            pos_in_block = global_pos % bs
+            block_id = block_ids[block_idx]
+            token_kv = [(k[:, :, i:i+1, :], v[:, :, i:i+1, :]) for k, v in kv_layers]
+            self.write_token(block_id, token_kv, pos_in_block)
+            
     
     def write_token(self, block_id, kv_layers, pos_in_block): # decode
         self._ensure_block(block_id)  # decode 可能写入新分配的 block

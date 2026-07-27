@@ -18,6 +18,9 @@ class PrefillInput:
     block_offset: int = 0          # 第一个 block 的起始偏移
     skip_tokens: int = 0           # 跳过前 N 个 token（已在 cache 中）
     num_cached_blocks: int = 0     # 前 N 个 block 来自 cache
+    chunk_start: int = 0          # 此 chunk 在完整 prompt 中的起始位置
+    chunk_end: int | None = None     # 此 chunk 在完整 prompt 中的结束位置（不含），None 表示完整 prefill
+    is_last_chunk: bool = True      # 是否为最后一个 chunk（决定是否返回 first token）
 
 @dataclass
 class BatchDecodeInput:
@@ -52,8 +55,14 @@ class NativeBackend:
         self._past_len: dict[int, int] = {}
         self._generated: dict[int, list[int]] = {}  # request_id → 已生成token id
 
-    def prefill(self, inp: PrefillInput) -> int:
-        """prefix-aware prefill。只计算 token_ids[skip_tokens:]，复用匹配部分的 KV。"""
+    def prefill(self, inp: PrefillInput) -> int | None:
+        """prefix-aware prefill。 chunk_end=None 时做完整 prefill，否则做 chunked prefill"""
+        if inp.chunk_end is not None:
+            return self._prefill_chunk(inp)
+        else:
+            return self._prefill_full(inp)
+        
+    def _prefill_full(self, inp: PrefillInput) -> int:
         pool = self.kv_manager.pool
         token_ids = inp.token_ids
         matched_tokens = inp.skip_tokens
@@ -117,6 +126,66 @@ class NativeBackend:
         self._generated[inp.request_id] = [next_token]
         return next_token
     
+    def _prefill_chunk(self, inp: PrefillInput) -> int | None:
+        pool = self.kv_manager.pool 
+        token_ids = inp.token_ids 
+        chunk_start = inp.chunk_start
+        chunk_end = inp.chunk_end 
+        block_ids = list(inp.block_ids)
+        block_offset = inp.block_offset
+        
+        past_len = chunk_start 
+        chunk_tokens = token_ids[chunk_start:chunk_end]
+        chunk_len = len(chunk_tokens)
+        
+        # 1. 全缓存命中
+        if chunk_len == 0:
+            past_kv = []
+            for layer_idx in range(pool.num_layers):
+                K, V = pool.read_layer(layer_idx, [block_ids], [past_len],
+                                        past_len, [block_offset])
+                past_kv.append((K, V))
+            input_ids = torch.tensor([[token_ids[-1]]], device=self.device)
+            position_ids = torch.tensor([[past_len]], device=self.device)
+            logits, _ = self.model(input_ids, position_ids, past_key_values=past_kv)
+            self._past_len[inp.request_id] = past_len
+            next_token = logits[0, -1, :].argmax().item()
+            self._generated[inp.request_id] = [next_token]
+            return next_token
+        
+        input_ids = torch.tensor([chunk_tokens], device=self.device)
+        position_ids = torch.arange(past_len, chunk_end, device=self.device).unsqueeze(0)
+        
+        if past_len > 0:
+            past_kv = []
+            for layer_idx in range(pool.num_layers):
+                K, V = pool.read_layer(layer_idx, [block_ids], [past_len],
+                                        past_len, [block_offset])
+                past_kv.append((K, V))
+            q_len = chunk_len
+            kv_len = past_len + chunk_len
+            attn_mask = torch.ones(1, 1, q_len, kv_len, device=self.device, dtype=torch.bool)
+            causal = torch.tril(torch.ones(q_len, q_len, device=self.device, dtype=torch.bool))
+            attn_mask[:, :, :, past_len:] = causal
+        else:
+            past_kv = None
+            attn_mask = None
+        
+        logits, past_key_values = self.model(
+            input_ids, position_ids, past_key_values=past_kv, attention_mask=attn_mask)
+        
+        chunk_kv = [(k[:, :, past_len:, :], v[:, :, past_len:, :]) for k, v in past_key_values]
+        pool.write_chunk_kv(block_ids, chunk_kv, token_start=chunk_start, block_offset=block_offset)
+        
+        self._past_len[inp.request_id] = chunk_end
+        
+        if inp.is_last_chunk:
+            next_token = logits[0, -1, :].argmax().item()
+            self._generated[inp.request_id] = [next_token]
+            return next_token
+        else:
+            return None
+        
     def batch_decode(self, inputs: list[BatchDecodeInput]) -> list:
         """返回 [next_token_id, ...]"""
         B = len(inputs)

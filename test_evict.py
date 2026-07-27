@@ -61,8 +61,8 @@ assert res['matched_blocks'] == []
 
 print("\n=== 测试 7: A 仍可 match 命中 ===")
 res = cache.match(list(range(48)))
-print(f"  A match: matched_blocks={res['matched_blocks']} matched_tokens={res['matched_tokens']}")
+print(f"  A match: matched_blocks={res['matched_blocks']} matched_tokens={res['num_matched_tokens']}")
 assert res['matched_blocks'] == a_blocks
-assert res['matched_tokens'] == 48
+assert res['num_matched_tokens'] == 48
 
 print(f"\n{'='*40}\n阶段 1c evict 测试全部通过!")

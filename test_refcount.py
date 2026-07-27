@@ -55,9 +55,9 @@ print("  PASS: cache 持有的 block 没被 free 提前释放")
 print("\n=== 测试 3: B 完全 match 命中 A, ref_count=2 ===")
 tokens_b = list(range(48))
 bt_b, res_b = simulate_admit(tokens_b)
-print(f"  B matched_blocks={res_b['matched_blocks']}, matched_tokens={res_b['matched_tokens']}")
+print(f"  B matched_blocks={res_b['matched_blocks']}, matched_tokens={res_b['num_matched_tokens']}")
 assert res_b['matched_blocks'] == blocks_a
-assert res_b['matched_tokens'] == 48
+assert res_b['num_matched_tokens'] == 48
 for b in blocks_a:
     print(f"  block {b}: ref_count={ref(b)} (期望 2)")
     assert ref(b) == 2
@@ -73,10 +73,10 @@ print("\n=== 测试 5: C 部分匹配分裂 (common=20, aligned=16) ===")
 tokens_c = list(range(20)) + [99] * 10   # 30 token
 bt_c, res_c = simulate_admit(tokens_c)
 blocks_c = list(bt_c.block_ids)
-print(f"  C matched_blocks={res_c['matched_blocks']}, matched_tokens={res_c['matched_tokens']}")
+print(f"  C matched_blocks={res_c['matched_blocks']}, matched_tokens={res_c['num_matched_tokens']}")
 print(f"  C block_table: {blocks_c}")
 assert res_c['matched_blocks'] == [blocks_a[0]]      # [0]
-assert res_c['matched_tokens'] == 16
+assert res_c['num_matched_tokens'] == 16
 # block 0: cache(common_node,1) + C运行(1) = 2
 print(f"  block 0 (复用, common_node): ref_count={ref(0)} (期望 2)")
 assert ref(0) == 2
@@ -104,9 +104,9 @@ print("  PASS: 所有 cache 持有的 block 数据保留")
 print("\n=== 测试 7: 分裂后 D match 命中 C 的分支 (跨 common_node + new_branch) ===")
 tokens_d = list(range(20)) + [99] * 10
 bt_d, res_d = simulate_admit(tokens_d)
-print(f"  D matched_blocks={res_d['matched_blocks']}, matched_tokens={res_d['matched_tokens']}")
+print(f"  D matched_blocks={res_d['matched_blocks']}, matched_tokens={res_d['num_matched_tokens']}")
 assert res_d['matched_blocks'] == [0, new_block]
-assert res_d['matched_tokens'] == 30
+assert res_d['num_matched_tokens'] == 30
 print(f"  block 0: {ref(0)} (期望 2), block {new_block}: {ref(new_block)} (期望 2)")
 assert ref(0) == 2 and ref(new_block) == 2
 manager.free(bt_d)

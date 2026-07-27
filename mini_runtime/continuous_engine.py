@@ -5,7 +5,7 @@ from .request import Request
 from .metrics import Metrics
 from .kv_cache import KVCacheManager, BlockTable
 from .prefix_cache import PrefixCache
-from .config import BLOCK_SIZE, NUM_BLOCKS
+from .config import BLOCK_SIZE, NUM_BLOCKS, MAX_TOKENS_PER_PREFILL_CHUNK, MAX_TOKENS_PER_PREFILL_STEP
 from .backends.native_backend import NativeBackend, PrefillInput, BatchDecodeInput
 
 class Engine:
@@ -21,7 +21,8 @@ class Engine:
         self.backend = backend
         
         self.waiting_queue = Queue()
-        self.running_requests = []
+        self.prefilling_requests = []   # 持有 blocks 但 prefill 未完成 
+        self.running_requests = []      # prefill 完成，正在 decode
         self.max_batch_size = max_batch_size
         self.request_timeout = request_timeout
 
@@ -48,11 +49,11 @@ class Engine:
     async def scheduler_loop(self):
         while True:
             await self.admit_requests()
-            await self.prefill_new_requests()
+            await self.prefill_step()
             await self.decode_one_step()
     
     async def admit_requests(self):
-        while len(self.running_requests) < self.max_batch_size:
+        while len(self.running_requests) + len(self.prefilling_requests) < self.max_batch_size:
             try:
                 request: Request = self.waiting_queue.get_nowait()
             except asyncio.QueueEmpty:
@@ -94,43 +95,74 @@ class Engine:
             request.matched_offset = matched_offset
             request.num_matched_blocks = num_matched_blocks
             request.match_result = match_result
-            self.running_requests.append(request)
+            request.prefill_progress = num_matched_tokens  # 初始化 prefill_progress 为已复用的 token 数
+            self.prefilling_requests.append(request)
             self.metrics.max_running_requests = max(
                 self.metrics.max_running_requests, len(self.running_requests)
             )
 
             self.waiting_queue.task_done()
     
-    async def prefill_new_requests(self):
-        """对未 prefill 的请求做 prefix-aware prefill，并把新 block 插入 prefix cache。"""
-        new_requests = [r for r in self.running_requests if not r.prefill_done]
-        if not new_requests:
-            return
-
+    async def prefill_step(self):
+        if not self.prefilling_requests:
+            return 
         self.metrics.prefill_batches += 1
-
-        for r in new_requests:
+        budget = MAX_TOKENS_PER_PREFILL_STEP
+        max_chunk = MAX_TOKENS_PER_PREFILL_CHUNK
+        migrated = [] # 本轮完成的 prefill 的请求
+        
+        for r in self.prefilling_requests:
+            if budget <= 0:
+                break
+            
+            prompt_len = len(r.token_ids)
+            start = r.prefill_progress
+            
+            if start < prompt_len:
+                chunk_len = min(budget, max_chunk, prompt_len - start)
+                end = start + chunk_len
+            else:
+                # 全缓存命中
+                chunk_len = 0
+                end = prompt_len 
+            is_last = (end == prompt_len)
+            
             inp = PrefillInput(
                 request_id=r.request_id,
                 token_ids=r.token_ids,
                 block_ids=r.block_table.block_ids,
                 block_offset=r.block_table.offset,
-                skip_tokens=r.num_matched_tokens,
+                skip_tokens=start,
                 num_cached_blocks=r.num_matched_blocks,
+                chunk_start=start,
+                chunk_end=end,
+                is_last_chunk=is_last
             )
-            first_token = await asyncio.to_thread(self.backend.prefill, inp)
-            # prefill 完成, 把新 block 插入 prefix cache (cache 持有, ref_count +1)
-            new_cache_blocks = self.prefix_cache.insert(
-                r.token_ids, list(r.block_table.block_ids), r.match_result)
-            for bid in new_cache_blocks:
-                self.kv_manager.inc_ref(bid)
-
-            r._last_token = first_token
-            r._generated_token_ids.append(first_token)
-            r.generated_tokens = 1
-            r.first_token_time = asyncio.get_running_loop().time()
-            r.prefill_done = True
-    
+            
+            result = await asyncio.to_thread(self.backend.prefill, inp)
+            
+            if is_last:
+                # 插入 prefix cache
+                new_cache_blocks = self.prefix_cache.insert(
+                    r.token_ids, list(r.block_table.block_ids), r.match_result)
+                for bid in new_cache_blocks:
+                    self.kv_manager.inc_ref(bid)
+                
+                r._last_token = result
+                r._generated_token_ids.append(result)
+                r.generated_tokens = 1
+                r.first_token_time = asyncio.get_running_loop().time()
+                r.prefill_done = True
+                migrated.append(r)
+            
+            r.prefill_progress = end
+            budget -= chunk_len
+        
+        # 迁移完成的请求
+        for r in migrated:
+            self.prefilling_requests.remove(r)
+            self.running_requests.append(r)
+            
     async def decode_one_step(self):
         if not self.running_requests:
             await asyncio.sleep(0.001)
@@ -338,6 +370,16 @@ class Engine:
                 break
 
         # 释放正在运行请求的资源
+        for request in self.prefilling_requests:
+            if request.block_table:
+                self.kv_manager.free(request.block_table)
+            if not request.future.done():
+                request.future.set_result({
+                    "request_id": request.request_id,
+                    "error": "cancelled",
+                })
+                self.metrics.cancelled += 1
+                
         for request in self.running_requests:
             if request.block_table:
                 self.kv_manager.free(request.block_table)
@@ -348,6 +390,7 @@ class Engine:
                 })
                 self.metrics.cancelled += 1
 
+        self.prefilling_requests.clear()
         self.running_requests.clear()
 
         if self.engine_task:
