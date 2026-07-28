@@ -209,7 +209,7 @@ class Engine:
                 is_last_chunk=is_last
             )
             
-            result = await asyncio.to_thread(self.backend.prefill, inp)
+            result = self.backend.prefill(inp)  # 同步调用，避免 asyncio.to_thread 显存泄漏
             
             if is_last:
                 # 插入 prefix cache
