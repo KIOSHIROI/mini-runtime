@@ -59,8 +59,8 @@ class NativeBackend:
         self._past_len: dict[int, int] = {}
         self._generated: dict[int, list[int]] = {}  # request_id → 已生成token id
         
-        self.profiler = ModuleProfiler()
-        self.model.profiler = self.profiler
+        self.module_profiler = ModuleProfiler()
+        self.model.module_profiler = self.module_profiler
 
     def prefill(self, inp: PrefillInput) -> int | None:
         """prefix-aware prefill。 chunk_end=None 时做完整 prefill，否则做 chunked prefill"""
@@ -134,7 +134,7 @@ class NativeBackend:
         return next_token
     
     def _prefill_chunk(self, inp: PrefillInput) -> int | None:
-        mp = self.profiler
+        mp = self.module_profiler
         
         pool = self.kv_manager.pool 
         token_ids = inp.token_ids 
@@ -213,7 +213,7 @@ class NativeBackend:
         
     def batch_decode(self, inputs: list[BatchDecodeInput]) -> list:
         """返回 [next_token_id, ...]"""
-        mp = self.profiler
+        mp = self.module_profiler
         
         B = len(inputs)
         pool = self.kv_manager.pool

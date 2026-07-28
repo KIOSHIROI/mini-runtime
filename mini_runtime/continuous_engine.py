@@ -59,7 +59,6 @@ class Engine:
             n = await self.admit_requests()
             ep.admit_done(n)
             
-            
             mp.record("before_prefill", snap = mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
             p_tokens, p_reqs = await self.prefill_step()
             mp.record("after_prefill", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
@@ -69,7 +68,13 @@ class Engine:
             mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
             ep.decode_done(d_tokens, d_reqs)
             
-            ep.step_end()
+            ep.step_end(
+                waiting=self.waiting_queue.qsize(),
+                prefilling=len(self.prefilling_requests),
+                running=len(self.running_requests),
+                budget_used=p_tokens,
+                budget_total=MAX_TOKENS_PER_PREFILL_STEP
+            )
     
     async def admit_requests(self) -> int:
         admitted = 0

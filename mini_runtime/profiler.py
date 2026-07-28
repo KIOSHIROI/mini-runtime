@@ -21,6 +21,12 @@ class StepTrace:
     decode_tokens: int = 0
     decode_reqs: int = 0
     step_total_ms: float = 0.0
+    
+    # scheuler profile
+    waiting_depth: int = 0      # admit 前等待队列深度
+    prefilling_count: int = 0   # admit后 prefilling 请求数
+    running_count: int = 0      # admit后 running 请求数
+    budget_pct: float = 0.0     # prefill budget 利用率（%）
 
 class EngineProfiler:
     """每个 scheduler step 记录一次 StepRecord, 每个请求记录一次 RequestRecord"""
@@ -38,8 +44,6 @@ class EngineProfiler:
         self._step_start = time.perf_counter()
         self._phase_start = self._step_start
         
-
-    
     def admit_done(self, n: int):
         """admit requests 结束, n = 本轮 admit 了几个"""
         now = time.perf_counter()
@@ -48,7 +52,6 @@ class EngineProfiler:
         self.steps[-1].admit_ms = admit_time
         self._phase_start = now
         
-    
     def prefill_done(self, tokens: int, reqs: int):
         """prefill_step 结束, tokens = 本轮 prefill 了多少 token, reqs = 本轮 prefill 了多少请求"""
         now = time.perf_counter()
@@ -84,31 +87,69 @@ class EngineProfiler:
         rs.finish_time = time.perf_counter()
         rs.generated_tokens = gen_tokens
     
-    def step_end(self):
+    def step_end(self, waiting: int, prefilling: int, running: int, budget_used: int, budget_total: int):
         """scheduler_loop 迭代结束, 汇总本 step"""
         self.steps[self.step_no].step_total_ms = (time.perf_counter() - self._step_start) * 1000
+        self.steps[self.step_no].waiting_depth = waiting
+        self.steps[self.step_no].prefilling_count = prefilling
+        self.steps[self.step_no].running_count = running
+        self.steps[self.step_no].budget_pct = (budget_used / budget_total) * 100 if budget_total > 0 else 0
         self.step_no += 1
     
-    def summary(self) -> str:
-        """打印汇总统计"""
-        print(
-        "\n"
-        "=== Engine Profiler Summary ===\n"
-        f"Steps: {len(self.steps)}\n"
-        f"Total time: {sum(step.step_total_ms for step in self.steps)} ms\n"
-        "\n"
-        "Per-step averages:\n"
-        f"    admit:\t{sum(step.admit_ms for step in self.steps) / len(self.steps) if self.steps else 0:.2f} ms\n"
-        f"    prefill:\t{sum(step.prefill_ms for step in self.steps) / len(self.steps) if self.steps else 0:.2f} ms\n"
-        f"    decode:\t{sum(step.decode_ms for step in self.steps) / len(self.steps) if self.steps else 0:.2f} ms\n"
-        "\n"
-        "Request stats:\n"
-        f"    completed:\t{len([r for r in self.requests.values() if r.finish_time is not None])}\n"
-        f"    avg TTFT:\t{sum(r.first_token_time - r.submit_time for r in self.requests.values() if r.first_token_time is not None) * 1000 / len([r for r in self.requests.values() if r.first_token_time is not None]) if [r for r in self.requests.values() if r.first_token_time is not None] else 0:.2f} ms\n"
-        f"    avg TPOT:\t{sum((r.finish_time - r.first_token_time) / r.generated_tokens for r in self.requests.values() if r.finish_time is not None and r.generated_tokens > 0) * 1000 / len([r for r in self.requests.values() if r.finish_time is not None and r.generated_tokens > 0]) if [r for r in self.requests.values() if r.finish_time is not None and r.generated_tokens > 0] else 0:.2f} ms\n"
-        f"    avg total:\t{sum(r.finish_time - r.submit_time for r in self.requests.values() if r.finish_time is not None) * 1000 / len([r for r in self.requests.values() if r.finish_time is not None]) if [r for r in self.requests.values() if r.finish_time is not None] else 0:.2f} ms\n"
-        "--------------------------------\n"
-        )
+    def summary(self):
+        """打印汇总统计。"""
+        if not self.steps:
+            return
+
+        s = self.steps
+        n = len(s)
+        total_ms = sum(step.step_total_ms for step in s)
+
+        def avg(values):
+            return sum(values) / n
+
+        # request stats
+        completed = [r for r in self.requests.values() if r.finish_time is not None]
+        c = len(completed)
+        ttft_vals = [(r.first_token_time - r.submit_time) * 1000
+                     for r in completed if r.first_token_time is not None]
+        tpot_vals = [((r.finish_time - r.first_token_time) / r.generated_tokens) * 1000
+                     for r in completed if r.finish_time is not None and r.generated_tokens > 0]
+        total_vals = [(r.finish_time - r.submit_time) * 1000
+                      for r in completed if r.finish_time is not None]
+
+        lines = []
+        W1, W2 = 22, 10  # label width, value width
+
+        def row(label, value, unit=""):
+            lines.append(f"  {label:<{W1}} {value:>{W2}.2f} {unit}".rstrip())
+
+        lines.append("=== Engine Profile ===")
+        lines.append(f"  {'Steps:':<{W1}} {n:>{W2}}")
+        lines.append(f"  {'Total time:':<{W1}} {total_ms:>{W2}.2f} ms")
+
+        lines.append("")
+        lines.append("  Per-step averages:")
+        row("admit:",     avg([st.admit_ms for st in s]),     "ms")
+        row("prefill:",   avg([st.prefill_ms for st in s]),   "ms")
+        row("decode:",    avg([st.decode_ms for st in s]),    "ms")
+
+        lines.append("")
+        lines.append("  Request stats:")
+        lines.append(f"  {'completed:':<{W1}} {c:>{W2}}")
+        row("avg TTFT:",   sum(ttft_vals) / len(ttft_vals) if ttft_vals else 0,  "ms")
+        row("avg TPOT:",   sum(tpot_vals) / len(tpot_vals) if tpot_vals else 0,  "ms")
+        row("avg total:",  sum(total_vals) / len(total_vals) if total_vals else 0, "ms")
+
+        lines.append("")
+        lines.append("  Scheduler stats:")
+        row("avg waiting:",    avg([st.waiting_depth for st in s]))
+        row("avg prefilling:", avg([st.prefilling_count for st in s]))
+        row("avg running:",    avg([st.running_count for st in s]))
+        row("avg budget used:", avg([st.budget_pct for st in s]), "%")
+
+        lines.append("----------------------\n")
+        print("\n".join(lines))
         
 class ModuleProfiler:
     """累积模块级别的耗时统计, 用于回答 'forward pass 里时间花在哪'."""

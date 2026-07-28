@@ -15,10 +15,10 @@ class Qwen2Model(nn.Module):
         ])
         self.norm = RMSNorm(config.hidden_size, config.rms_norm_eps)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.profiler = None  # backend 注入
+        self.module_profiler = None  # backend 注入
         
     def forward(self, input_ids, position_ids, past_key_values=None, attention_mask=None):
-        mp = self.profiler
+        mp = self.module_profiler
         t0 = time.perf_counter() if mp else 0.0
         
         x = self.embed_tokens(input_ids)
