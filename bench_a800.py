@@ -83,11 +83,13 @@ async def run_one(
     ep = engine.engine_profiler
     steps = ep.steps
 
-    # 显存诊断：打印当前 PyTorch 占用
+    # 显存诊断：打印当前 PyTorch 占用，超过 10GB 打印详细摘要
     if torch.cuda.is_available():
         alloc_gb = torch.cuda.memory_allocated() / 1024**3
         resv_gb = torch.cuda.memory_reserved() / 1024**3
         print(f"  [MEM] allocated={alloc_gb:.1f}GB reserved={resv_gb:.1f}GB", end="")
+        if alloc_gb > 10:
+            print("\n" + torch.cuda.memory_summary())
 
     prefill_ms = sum(s.prefill_ms for s in steps) / len(steps) if steps else 0
     decode_ms = sum(s.decode_ms for s in steps) / len(steps) if steps else 0
