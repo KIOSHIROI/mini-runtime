@@ -10,6 +10,7 @@ import asyncio
 import time
 import csv
 import argparse
+import gc
 import torch
 from mini_runtime.backends.native_backend import NativeBackend
 from mini_runtime.continuous_engine import Engine
@@ -64,6 +65,15 @@ async def run_one(
     tpots = [r["tpot"] for r in results if "tpot" in r]
     gen_tokens = sum(r.get("generated_tokens", 0) for r in results)
 
+    # 诊断：统计各类错误
+    errors = {}
+    for r in results:
+        if "error" in r:
+            err = r["error"]
+            errors[err] = errors.get(err, 0) + 1
+    if errors:
+        print(f"\n    [ERRORS] {errors}", end="")
+
     m = engine.snapshot_metrics()
     ep = engine.engine_profiler
     steps = ep.steps
@@ -73,6 +83,8 @@ async def run_one(
 
     await engine.shutdown()
     backend.kv_manager = None  # 释放旧 Engine 的 KV cache 引用，避免 GPU 显存泄漏
+    del engine
+    gc.collect()
     torch.cuda.empty_cache()
 
     return {
