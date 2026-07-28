@@ -113,7 +113,7 @@ class Engine:
                 break
         self.prefilling_requests.clear()
         self.running_requests.clear()
-    
+        self.kv_manager.release_all()
     async def admit_requests(self) -> int:
         admitted = 0
         while len(self.running_requests) + len(self.prefilling_requests) < self.max_batch_size:
@@ -476,6 +476,9 @@ class Engine:
 
         self.prefilling_requests.clear()
         self.running_requests.clear()
+
+        # 强制释放 prefix cache 引用的所有 block tensor
+        self.kv_manager.release_all()
 
         if self.engine_task:
             self.engine_task.cancel()

@@ -82,6 +82,15 @@ class KVCacheManager: # 管理层，监控谁占用了哪些 block，负责分�
             self.dec_ref(block_id)
         block_table.clear()
         
+    def release_all(self) -> None:
+        """强制释放所有已分配 block 的 GPU tensor（shutdown 时调用）。"""
+        for block_id in list(self.used_blocks_ids):
+            self.pool.release(block_id)
+        self.used_blocks_ids.clear()
+        self.free_blocks_ids = deque(range(self.num_blocks))
+        for block in self.blocks:
+            block.ref_count = 0
+            block.is_free = True
     
     @property 
     def utilization(self) -> float:
