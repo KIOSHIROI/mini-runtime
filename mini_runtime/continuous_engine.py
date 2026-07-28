@@ -7,7 +7,7 @@ from .kv_cache import KVCacheManager, BlockTable
 from .prefix_cache import PrefixCache
 from .config import BLOCK_SIZE, NUM_BLOCKS, MAX_TOKENS_PER_PREFILL_CHUNK, MAX_TOKENS_PER_PREFILL_STEP
 from .backends.native_backend import NativeBackend, PrefillInput, BatchDecodeInput
-
+from .profiler import EngineProfiler
 class Engine:
     def __init__(
         self,
@@ -43,16 +43,28 @@ class Engine:
         self.backend.kv_manager = self.kv_manager
         self.prefix_cache = PrefixCache(block_size=block_size)
         
+        self.profiler = EngineProfiler()
+        
     async def start(self):
         self.engine_task = asyncio.create_task(self.scheduler_loop())
     
     async def scheduler_loop(self):
         while True:
-            await self.admit_requests()
-            await self.prefill_step()
-            await self.decode_one_step()
+            self.profiler.step_start()
+            
+            n = await self.admit_requests()
+            self.profiler.admit_done(n)
+            
+            p_tokens, p_reqs = await self.prefill_step()
+            self.profiler.prefill_done(p_tokens, p_reqs)
+            
+            d_tokens, d_reqs = await self.decode_one_step()
+            self.profiler.decode_done(d_tokens, d_reqs)
+            
+            self.profiler.step_end()
     
-    async def admit_requests(self):
+    async def admit_requests(self) -> int:
+        admitted = 0
         while len(self.running_requests) + len(self.prefilling_requests) < self.max_batch_size:
             try:
                 request: Request = self.waiting_queue.get_nowait()
@@ -100,17 +112,21 @@ class Engine:
             self.metrics.max_running_requests = max(
                 self.metrics.max_running_requests, len(self.running_requests)
             )
-
+            
+            admitted += 1
             self.waiting_queue.task_done()
+        return admitted
     
     async def prefill_step(self):
         if not self.prefilling_requests:
-            return 
+            return 0, 0
         self.metrics.prefill_batches += 1
         budget = MAX_TOKENS_PER_PREFILL_STEP
         max_chunk = MAX_TOKENS_PER_PREFILL_CHUNK
         migrated = [] # 本轮完成的 prefill 的请求
         
+        step_tokens = 0
+        step_reqs = 0
         for r in self.prefilling_requests:
             if budget <= 0:
                 break
@@ -152,22 +168,30 @@ class Engine:
                 r._generated_token_ids.append(result)
                 r.generated_tokens = 1
                 r.first_token_time = asyncio.get_running_loop().time()
+                self.profiler.request_first_token(r.request_id)
                 r.prefill_done = True
                 migrated.append(r)
             
             r.prefill_progress = end
             budget -= chunk_len
+            step_tokens += chunk_len
+            step_reqs += 1
         
         # 迁移完成的请求
         for r in migrated:
             self.prefilling_requests.remove(r)
             self.running_requests.append(r)
+    
+        return step_tokens, step_reqs
             
     async def decode_one_step(self):
+        step_tokens = 0
+        
         if not self.running_requests:
             await asyncio.sleep(0.001)
-            return
-        
+            return 0, 0
+
+        step_reqs = 0
         active = len(self.running_requests) 
                
         
@@ -223,7 +247,8 @@ class Engine:
                 r.first_token_time = now
                             
             r.generated_tokens += 1
-
+            step_tokens += 1
+            
             if next_token is not None:
                 r._generated_token_ids.append(next_token)
             r._last_token = next_token
@@ -231,10 +256,13 @@ class Engine:
             if r.generated_tokens >= r.max_new_tokens or r._last_token is None:
                 finished.append(r)
         
+        step_reqs = len(self.running_requests)
+        
         for r in finished:
             self.finish_request(r, now)
             self.running_requests.remove(r)
         
+        return step_tokens, step_reqs
     
     def finish_request(self, request: Request, finish_time: float):
         if request.block_table:
@@ -264,6 +292,7 @@ class Engine:
             "service_time": service_time,
             "output": self.backend.tokenizer.decode(request._generated_token_ids),
         })
+        self.profiler.request_finish(request.request_id, request.generated_tokens)
         self.metrics.success += 1
         if ttft is not None:
             self.metrics.total_ttft += ttft
@@ -294,6 +323,8 @@ class Engine:
             submit_time = loop.time(),
             future = future,
         )
+        
+        self.profiler.request_start(request.request_id)
         
         self.next_request_id += 1
         
