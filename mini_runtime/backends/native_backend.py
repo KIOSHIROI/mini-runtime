@@ -55,7 +55,8 @@ class NativeBackend:
         self.model.eval()
         self.model.to(device)
 
-
+        # 纯推理环境，全局禁用 autograd 避免计算图积累占用显存
+        torch.set_grad_enabled(False)
         self._past_len: dict[int, int] = {}
         self._generated: dict[int, list[int]] = {}  # request_id → 已生成token id
         
