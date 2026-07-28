@@ -46,5 +46,5 @@ def load_qwen2_weights(model: Qwen2Model, model_path: str, device: torch.device)
         for key, tensor in mapped_state_dict.items()
     }
     
-    model.to(device)
+    model.to(torch.float16).to(device)
     model.load_state_dict(final_state_dict, strict=True)

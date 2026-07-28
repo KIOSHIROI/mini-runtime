@@ -76,7 +76,11 @@ class Engine:
                     budget_used=p_tokens,
                     budget_total=MAX_TOKENS_PER_PREFILL_STEP
                 )
-            except torch.OutOfMemoryError:
+            except torch.OutOfMemoryError as e:
+                import sys
+                allocated = torch.cuda.memory_allocated() / 1024**3
+                reserved = torch.cuda.memory_reserved() / 1024**3
+                print(f"\n    [OOM @ step {ep.step_no}] allocated={allocated:.1f}GB reserved={reserved:.1f}GB: {e}", file=sys.stderr)
                 self._fail_all_requests("OOM")
                 break
             except Exception as e:
