@@ -70,9 +70,6 @@ class Engine:
                 mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
                 ep.decode_done(d_tokens, d_reqs)
                 
-                # 每步后强制清理 PyTorch allocator 缓存碎片
-                torch.cuda.empty_cache()
-                
                 ep.step_end(
                     waiting=self.waiting_queue.qsize(),
                     prefilling=len(self.prefilling_requests),
@@ -291,12 +288,7 @@ class Engine:
             block_offset=r.matched_offset,
         ) for r in self.running_requests]
         
-        # DEBUG: 同步调用测试是否 asyncio.to_thread 导致显存泄漏
         next_tokens = self.backend.batch_decode(batched)
-        # next_tokens = await asyncio.to_thread(
-        #     self.backend.batch_decode,
-        #     batched,
-        # )
         
         for r, next_token in zip(self.running_requests, next_tokens):                
             if r.first_token_time is None:
