@@ -291,10 +291,12 @@ class Engine:
             block_offset=r.matched_offset,
         ) for r in self.running_requests]
         
-        next_tokens = await asyncio.to_thread(
-            self.backend.batch_decode,
-            batched,
-        )
+        # DEBUG: 同步调用测试是否 asyncio.to_thread 导致显存泄漏
+        next_tokens = self.backend.batch_decode(batched)
+        # next_tokens = await asyncio.to_thread(
+        #     self.backend.batch_decode,
+        #     batched,
+        # )
         
         for r, next_token in zip(self.running_requests, next_tokens):                
             if r.first_token_time is None:
