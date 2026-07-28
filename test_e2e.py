@@ -30,8 +30,9 @@ async def main():
     assert len(engine.prefix_cache.root.children) >= 1, "prefix cache 应有缓存节点"
     print("\n端到端测试通过!")
 
-    engine.profiler.summary()
-    backend.profiler.summary()
+    engine.engine_profiler.summary()
+    engine.memory_profiler.summary()
+    backend.module_profiler.summary()
     await engine.shutdown()
 
 

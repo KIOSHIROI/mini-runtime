@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 import time
+import torch
 @dataclass 
 class RequestTrace:
     request_id: int
@@ -162,6 +163,67 @@ class ModuleProfiler:
                 lines.append(f"    {label:20s} {ct:8.2f} ms ({cpct:5.1f}%)  [{ccnt} calls]")
 
         lines.append(f"  {'TOTAL:':20s} {total:8.2f} ms")
-        lines.append("----------------------")
+        lines.append("----------------------\n")
         print("\n".join(lines))
-        
+
+class MemoryProfiler:
+    """内存快照追踪：模型权重、KV cache、PyTorch 显存。"""
+
+    def __init__(self):
+        self._snapshots: list[tuple[str, dict]] = []
+
+    def snapshot(self, model, kv_manager, device: str) -> dict:
+        """返回当前内存快照 (MB)。"""
+        snap: dict[str, float] = {}
+
+        # 模型权重 (fp32 = 4 bytes per param)
+        total_params = sum(p.numel() for p in model.parameters())
+        snap["weights"] = total_params * 4 / (1024 * 1024)
+
+        # KV cache pool
+        pool = kv_manager.pool
+        used_blocks_count = sum(1 for b in kv_manager.blocks if not b.is_free)
+        free_blocks_count = sum(1 for b in kv_manager.blocks if b.is_free)
+        # 每个 block 的 tensor 大小: 2(k+v) * num_kv_heads * block_size * head_dim * 4(bytes)
+        block_bytes = (2 * pool.num_kv_heads * pool.block_size * pool.head_dim * 4)
+        block_mb = block_bytes / (1024 * 1024)
+        snap["kv_used"] = used_blocks_count * pool.num_layers * block_mb
+        snap["kv_free"] = free_blocks_count * pool.num_layers * block_mb
+
+        # PyTorch allocator (only meaningful on CUDA)
+        if device == "cuda":
+            snap["torch_allocated"] = torch.cuda.memory_allocated() / (1024 * 1024)
+            snap["torch_reserved"] = torch.cuda.memory_reserved() / (1024 * 1024)
+
+        return snap
+
+    def record(self, phase: str, snap: dict):
+        """记录一个时刻的快照，phase 如 'before_prefill'。"""
+        self._snapshots.append((phase, snap))
+
+    def summary(self):
+        """打印内存概况：总量分解 + KV cache 使用峰值。"""
+        if not self._snapshots:
+            return
+
+        # 取最后一张快照作为稳定状态
+        _, last = self._snapshots[-1]
+
+        # KV cache 峰值
+        kv_used_values = [s["kv_used"] for _, s in self._snapshots]
+        kv_used_peak = max(kv_used_values)
+        kv_total = last.get("kv_used", 0) + last.get("kv_free", 0)
+
+        lines = ["=== Memory Profile ==="]
+        lines.append(f"  weights:            {last.get('weights', 0):8.2f} MB")
+        lines.append(f"  KV cache (total):   {kv_total:8.2f} MB")
+        lines.append(f"    peak used:        {kv_used_peak:8.2f} MB")
+        lines.append(f"    current used:     {last.get('kv_used', 0):8.2f} MB")
+        lines.append(f"    current free:     {last.get('kv_free', 0):8.2f} MB")
+        if kv_total > 0:
+            lines.append(f"    utilization:      {kv_used_peak / kv_total * 100:8.1f}%")
+        if "torch_allocated" in last:
+            lines.append(f"  torch allocated:    {last['torch_allocated']:8.2f} MB")
+            lines.append(f"  torch reserved:     {last['torch_reserved']:8.2f} MB")
+        lines.append("----------------------\n")
+        print("\n".join(lines))

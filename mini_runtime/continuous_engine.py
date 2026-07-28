@@ -7,7 +7,8 @@ from .kv_cache import KVCacheManager, BlockTable
 from .prefix_cache import PrefixCache
 from .config import BLOCK_SIZE, NUM_BLOCKS, MAX_TOKENS_PER_PREFILL_CHUNK, MAX_TOKENS_PER_PREFILL_STEP
 from .backends.native_backend import NativeBackend, PrefillInput, BatchDecodeInput
-from .profiler import EngineProfiler
+from .profiler import EngineProfiler, MemoryProfiler
+
 class Engine:
     def __init__(
         self,
@@ -43,25 +44,32 @@ class Engine:
         self.backend.kv_manager = self.kv_manager
         self.prefix_cache = PrefixCache(block_size=block_size)
         
-        self.profiler = EngineProfiler()
+        self.engine_profiler = EngineProfiler()
+        self.memory_profiler = MemoryProfiler()
         
     async def start(self):
         self.engine_task = asyncio.create_task(self.scheduler_loop())
     
     async def scheduler_loop(self):
+        ep = self.engine_profiler
+        mp = self.memory_profiler
         while True:
-            self.profiler.step_start()
+            ep.step_start()
             
             n = await self.admit_requests()
-            self.profiler.admit_done(n)
+            ep.admit_done(n)
             
+            
+            mp.record("before_prefill", snap = mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
             p_tokens, p_reqs = await self.prefill_step()
-            self.profiler.prefill_done(p_tokens, p_reqs)
+            mp.record("after_prefill", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
+            ep.prefill_done(p_tokens, p_reqs)
             
             d_tokens, d_reqs = await self.decode_one_step()
-            self.profiler.decode_done(d_tokens, d_reqs)
+            mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
+            ep.decode_done(d_tokens, d_reqs)
             
-            self.profiler.step_end()
+            ep.step_end()
     
     async def admit_requests(self) -> int:
         admitted = 0
@@ -168,7 +176,7 @@ class Engine:
                 r._generated_token_ids.append(result)
                 r.generated_tokens = 1
                 r.first_token_time = asyncio.get_running_loop().time()
-                self.profiler.request_first_token(r.request_id)
+                self.engine_profiler.request_first_token(r.request_id)
                 r.prefill_done = True
                 migrated.append(r)
             
@@ -292,7 +300,7 @@ class Engine:
             "service_time": service_time,
             "output": self.backend.tokenizer.decode(request._generated_token_ids),
         })
-        self.profiler.request_finish(request.request_id, request.generated_tokens)
+        self.engine_profiler.request_finish(request.request_id, request.generated_tokens)
         self.metrics.success += 1
         if ttft is not None:
             self.metrics.total_ttft += ttft
@@ -324,7 +332,7 @@ class Engine:
             future = future,
         )
         
-        self.profiler.request_start(request.request_id)
+        self.engine_profiler.request_start(request.request_id)
         
         self.next_request_id += 1
         
