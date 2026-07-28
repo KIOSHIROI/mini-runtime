@@ -1,4 +1,5 @@
 import torch
+import time
 import torch.nn as nn
 from .config import Qwen2Config
 from .attention import Attention
@@ -18,8 +19,14 @@ class TransformerBlock(nn.Module):
         Pre_Norm 架构 
         残差连接
         """
-        x_attn, K_cache, V_cache = self.attention(self.norm1(x), position_ids, past_kv, attention_mask)
+        t0 = time.perf_counter()
+        x_attn, new_k, new_v = self.attention(self.norm1(x), position_ids, past_kv, attention_mask)
+        attn_ms = (time.perf_counter() - t0) * 1000
+
         x = x + x_attn
-        
+
+        t0 = time.perf_counter()
         x = x + self.mlp(self.norm2(x))
-        return x, K_cache, V_cache
+        mlp_ms = (time.perf_counter() - t0) * 1000
+
+        return x, new_k, new_v, attn_ms, mlp_ms

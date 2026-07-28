@@ -31,6 +31,7 @@ async def main():
     print("\n端到端测试通过!")
 
     engine.profiler.summary()
+    backend.profiler.summary()
     await engine.shutdown()
 
 

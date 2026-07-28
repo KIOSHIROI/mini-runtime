@@ -1,11 +1,15 @@
+import os
+import time
 import torch
 from transformers import AutoTokenizer
+from dataclasses import dataclass
+
 from ..model.qwen2_model import Qwen2Model
 from ..model.config import Qwen2Config
 from ..model.loader import load_qwen2_weights
 from ..kv_cache import KVCacheManager
-from dataclasses import dataclass
-import os
+from ..profiler import ModuleProfiler
+
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -54,6 +58,9 @@ class NativeBackend:
 
         self._past_len: dict[int, int] = {}
         self._generated: dict[int, list[int]] = {}  # request_id → 已生成token id
+        
+        self.profiler = ModuleProfiler()
+        self.model.profiler = self.profiler
 
     def prefill(self, inp: PrefillInput) -> int | None:
         """prefix-aware prefill。 chunk_end=None 时做完整 prefill，否则做 chunked prefill"""
@@ -127,6 +134,8 @@ class NativeBackend:
         return next_token
     
     def _prefill_chunk(self, inp: PrefillInput) -> int | None:
+        mp = self.profiler
+        
         pool = self.kv_manager.pool 
         token_ids = inp.token_ids 
         chunk_start = inp.chunk_start
@@ -137,20 +146,28 @@ class NativeBackend:
         past_len = chunk_start 
         chunk_tokens = token_ids[chunk_start:chunk_end]
         chunk_len = len(chunk_tokens)
-        
+                
         # 1. 全缓存命中
         if chunk_len == 0:
             past_kv = []
+            # 读 past KV
+            t0 = time.perf_counter()
             for layer_idx in range(pool.num_layers):
                 K, V = pool.read_layer(layer_idx, [block_ids], [past_len],
                                         past_len, [block_offset])
-                past_kv.append((K, V))
+                past_kv.append((K, V)) 
+            mp.record("kv_head", mp.elapsed(t0))
+            
             input_ids = torch.tensor([[token_ids[-1]]], device=self.device)
             position_ids = torch.tensor([[past_len]], device=self.device)
+            
+            # forward
             logits, _ = self.model(input_ids, position_ids, past_key_values=past_kv)
+            
             self._past_len[inp.request_id] = past_len
             next_token = logits[0, -1, :].argmax().item()
             self._generated[inp.request_id] = [next_token]
+            # 全命中无KV写入，直接返回 next_token
             return next_token
         
         input_ids = torch.tensor([chunk_tokens], device=self.device)
@@ -158,10 +175,14 @@ class NativeBackend:
         
         if past_len > 0:
             past_kv = []
+            # 读 past KV
+            t0 = time.perf_counter()
             for layer_idx in range(pool.num_layers):
                 K, V = pool.read_layer(layer_idx, [block_ids], [past_len],
                                         past_len, [block_offset])
                 past_kv.append((K, V))
+            mp.record("kv_head", mp.elapsed(t0))
+            
             q_len = chunk_len
             kv_len = past_len + chunk_len
             attn_mask = torch.ones(1, 1, q_len, kv_len, device=self.device, dtype=torch.bool)
@@ -171,11 +192,15 @@ class NativeBackend:
             past_kv = None
             attn_mask = None
         
+        # forward
         logits, past_key_values = self.model(
             input_ids, position_ids, past_key_values=past_kv, attention_mask=attn_mask)
         
         chunk_kv = [(k[:, :, past_len:, :], v[:, :, past_len:, :]) for k, v in past_key_values]
+        # 写 KV
+        t0 = time.perf_counter()
         pool.write_chunk_kv(block_ids, chunk_kv, token_start=chunk_start, block_offset=block_offset)
+        mp.record("kv_write", mp.elapsed(t0))
         
         self._past_len[inp.request_id] = chunk_end
         
@@ -188,6 +213,8 @@ class NativeBackend:
         
     def batch_decode(self, inputs: list[BatchDecodeInput]) -> list:
         """返回 [next_token_id, ...]"""
+        mp = self.profiler
+        
         B = len(inputs)
         pool = self.kv_manager.pool
 
@@ -205,11 +232,16 @@ class NativeBackend:
         max_past_len = max(past_lens) if past_lens else 0
         # 从 BlockPool 拼 KV (带 offset)
         batched_kvs = []
+        
+        # 读 KV
+        t0 = time.perf_counter()
         for layer_idx in range(pool.num_layers):
             K_batch, V_batch = pool.read_layer(
                 layer_idx, r_block_ids_list, past_lens, max_past_len, offsets
             )
             batched_kvs.append((K_batch, V_batch))
+        mp.record("kv_head", mp.elapsed(t0))
+        
         # attenion_mask：decode 时 query 只有 1 个新 token，需 attend 到过去所有 token + 自己
         attention_mask = torch.ones(B, 1, 1, max_past_len + 1, device=self.device).bool()
         for i in range(B):
@@ -220,6 +252,7 @@ class NativeBackend:
         input_ids = torch.tensor([[inp.token_id] for inp in inputs], device=self.device)
         position_ids = torch.tensor([[pos] for pos in request_positions], device=self.device)
 
+        # forward
         logits, new_kvs = self.model(
             input_ids, position_ids,
             past_key_values=batched_kvs,
@@ -242,7 +275,12 @@ class NativeBackend:
                 ]
                 block_idx = (inp.block_offset + past_len) // pool.block_size
                 pos_in_block = (inp.block_offset + past_len) % pool.block_size
+                
+                # 写 KV
+                t0 = time.perf_counter()
                 pool.write_token(inp.block_ids[block_idx], token_kv, pos_in_block)
+                mp.record("kv_write", mp.elapsed(t0))
+                
                 self._past_len[inp.request_id] = past_len + 1
 
         return next_tokens
