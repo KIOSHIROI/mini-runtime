@@ -54,27 +54,60 @@ class Engine:
         ep = self.engine_profiler
         mp = self.memory_profiler
         while True:
-            ep.step_start()
-            
-            n = await self.admit_requests()
-            ep.admit_done(n)
-            
-            mp.record("before_prefill", snap = mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
-            p_tokens, p_reqs = await self.prefill_step()
-            mp.record("after_prefill", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
-            ep.prefill_done(p_tokens, p_reqs)
-            
-            d_tokens, d_reqs = await self.decode_one_step()
-            mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
-            ep.decode_done(d_tokens, d_reqs)
-            
-            ep.step_end(
-                waiting=self.waiting_queue.qsize(),
-                prefilling=len(self.prefilling_requests),
-                running=len(self.running_requests),
-                budget_used=p_tokens,
-                budget_total=MAX_TOKENS_PER_PREFILL_STEP
-            )
+            try:
+                ep.step_start()
+                
+                n = await self.admit_requests()
+                ep.admit_done(n)
+                
+                mp.record("before_prefill", snap = mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
+                p_tokens, p_reqs = await self.prefill_step()
+                mp.record("after_prefill", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
+                ep.prefill_done(p_tokens, p_reqs)
+                
+                d_tokens, d_reqs = await self.decode_one_step()
+                mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
+                ep.decode_done(d_tokens, d_reqs)
+                
+                ep.step_end(
+                    waiting=self.waiting_queue.qsize(),
+                    prefilling=len(self.prefilling_requests),
+                    running=len(self.running_requests),
+                    budget_used=p_tokens,
+                    budget_total=MAX_TOKENS_PER_PREFILL_STEP
+                )
+            except torch.OutOfMemoryError:
+                self._fail_all_requests("OOM")
+                break
+            except Exception as e:
+                self._fail_all_requests(f"error: {e}")
+                break
+
+    def _fail_all_requests(self, error: str):
+        """scheduler loop 崩溃时，resolve 所有未完成的请求。"""
+        for r in self.prefilling_requests:
+            if r.block_table:
+                self.kv_manager.free(r.block_table)
+            if not r.future.done():
+                r.future.set_result({"request_id": r.request_id, "error": error})
+                self.metrics.oom += 1
+        for r in self.running_requests:
+            if r.block_table:
+                self.kv_manager.free(r.block_table)
+            if not r.future.done():
+                r.future.set_result({"request_id": r.request_id, "error": error})
+                self.metrics.oom += 1
+        while not self.waiting_queue.empty():
+            try:
+                r = self.waiting_queue.get_nowait()
+                if not r.future.done():
+                    r.future.set_result({"request_id": r.request_id, "error": error})
+                    self.metrics.oom += 1
+                self.waiting_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        self.prefilling_requests.clear()
+        self.running_requests.clear()
     
     async def admit_requests(self) -> int:
         admitted = 0
@@ -320,12 +353,14 @@ class Engine:
         用户调用该函数提交一个生成请求
         
         """
+        loop = asyncio.get_running_loop()
+        submit_time = loop.time()  # 在 tokenization 之前记录，TTFT 才能反映用户真实感知
+
         message = [{"role": "user", "content": prompt}]
         chat_text = self.backend.tokenizer.apply_chat_template(
             message, tokenize=False, add_generation_prompt=True
         )
         input_ids = self.backend.tokenizer.encode(chat_text)
-        loop = asyncio.get_running_loop()
         future = loop.create_future()
 
         request = Request(
@@ -333,7 +368,7 @@ class Engine:
             prompt = prompt,
             token_ids = input_ids,
             max_new_tokens = max_new_tokens,
-            submit_time = loop.time(),
+            submit_time = submit_time,
             future = future,
         )
         

@@ -2,6 +2,7 @@
 import asyncio
 import time
 import csv
+import torch
 from mini_runtime.backends.native_backend import NativeBackend
 from mini_runtime.continuous_engine import Engine
 
@@ -67,6 +68,8 @@ async def run_one(
     decode_ms = sum(s.decode_ms for s in steps) / len(steps) if steps else 0
 
     await engine.shutdown()
+    backend.kv_manager = None  # 释放旧 Engine 的 KV cache 引用，避免 GPU 显存泄漏
+    torch.cuda.empty_cache()
 
     return {
         "num_requests": num_requests,
@@ -80,8 +83,8 @@ async def run_one(
         )),
         "success": m["success"],
         "oom": m["oom"],
-        "ttft_avg_ms": sum(ttfts) / len(ttfts) if ttfts else 0,
-        "tpot_avg_ms": sum(tpots) / len(tpots) if tpots else 0,
+        "ttft_avg_ms": (sum(ttfts) / len(ttfts) * 1000) if ttfts else 0,
+        "tpot_avg_ms": (sum(tpots) / len(tpots) * 1000) if tpots else 0,
         "throughput_tok_s": gen_tokens / elapsed if elapsed > 0 else 0,
         "elapsed_s": elapsed,
         "prefill_batches": m["prefill_batches"],
