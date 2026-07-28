@@ -38,7 +38,8 @@ class Engine:
             num_layers=backend.model.config.num_layers,
             num_kv_heads=backend.model.config.num_kv_heads,
             head_dim=backend.model.config.head_dim,
-            device=device
+            device=device,
+            dtype=backend.model.embed_tokens.weight.dtype,
         )
 
         self.backend.kv_manager = self.kv_manager

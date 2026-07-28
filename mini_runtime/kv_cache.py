@@ -40,14 +40,14 @@ class BlockTable:
         self._block_ids.clear()
     
 class KVCacheManager: # 管理层，监控谁占用了哪些 block，负责分配和回收 block
-    def __init__(self, num_blocks: int, block_size: int, num_layers: int, num_kv_heads: int, head_dim: int, device: torch.device):
+    def __init__(self, num_blocks: int, block_size: int, num_layers: int, num_kv_heads: int, head_dim: int, device: torch.device, dtype=torch.float16):
         self.num_blocks = num_blocks
         self.block_size = block_size
         self.max_allocated = 0
         self.blocks = [KVBlock(i) for i in range(num_blocks)]
         self.free_blocks_ids = deque(range(num_blocks))
         self.used_blocks_ids = []
-        self.pool = BlockPool(num_blocks, num_layers, num_kv_heads, block_size, head_dim, device)
+        self.pool = BlockPool(num_blocks, num_layers, num_kv_heads, block_size, head_dim, device, dtype)
 
     def allocate(self, block_table: BlockTable, num_tokens: int) -> bool:
         num_need = math.ceil(num_tokens / self.block_size)
@@ -109,13 +109,14 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
     - decode 后 写入单个新 token 的 KV 到对应 block 位置
     - release 时释放至 None，归还 block
     """
-    def __init__(self, num_blocks, num_layers, num_kv_heads, block_size, head_dim, device):
+    def __init__(self, num_blocks, num_layers, num_kv_heads, block_size, head_dim, device, dtype=torch.float16):
         self._blocks = [None] * num_blocks
         self.num_layers = num_layers
         self.num_kv_heads = num_kv_heads
         self.block_size = block_size
         self.head_dim = head_dim
         self.device = device
+        self.dtype = dtype
     def release(self, block_id):
         if self._blocks[block_id] is None:
             return
@@ -133,8 +134,8 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
     def _ensure_block(self,block_id):
         if self._blocks[block_id] is None:
             self._blocks[block_id] = [(
-                torch.zeros((1, self.num_kv_heads, self.block_size, self.head_dim), device=self.device),
-                torch.zeros((1, self.num_kv_heads, self.block_size, self.head_dim), device=self.device),
+                torch.zeros((1, self.num_kv_heads, self.block_size, self.head_dim), device=self.device, dtype=self.dtype),
+                torch.zeros((1, self.num_kv_heads, self.block_size, self.head_dim), device=self.device, dtype=self.dtype),
             ) for _ in range(self.num_layers)]  
             
     def write_block(self, block_id, kv_layers):
@@ -194,17 +195,17 @@ class BlockPool: # 存储层，负责实际存储 KV 数据，提供读写接口
                 V_parts.append(self._blocks[bid][layer_idx][1][:, :, start:, :])
             # 空列表防护：batch_size 可能为 0 或首次 prefill 前
             K_req = torch.cat(K_parts, dim=2) if K_parts else \
-                torch.zeros(1, self.num_kv_heads, 0, self.head_dim, device=self.device)
+                torch.zeros(1, self.num_kv_heads, 0, self.head_dim, device=self.device, dtype=self.dtype)
             V_req = torch.cat(V_parts, dim=2) if V_parts else \
-                torch.zeros(1, self.num_kv_heads, 0, self.head_dim, device=self.device)
+                torch.zeros(1, self.num_kv_heads, 0, self.head_dim, device=self.device, dtype=self.dtype)
             
             K_req = K_req[:, :, :past_len, :]
             V_req = V_req[:, :, :past_len, :]
             
             pad_len = max_past_len - past_len
             if pad_len > 0:
-                K_req = torch.cat([K_req, torch.zeros((1, self.num_kv_heads, pad_len, self.head_dim), device=self.device)], dim=2)
-                V_req = torch.cat([V_req, torch.zeros((1, self.num_kv_heads, pad_len, self.head_dim), device=self.device)], dim=2)
+                K_req = torch.cat([K_req, torch.zeros((1, self.num_kv_heads, pad_len, self.head_dim), device=self.device, dtype=self.dtype)], dim=2)
+                V_req = torch.cat([V_req, torch.zeros((1, self.num_kv_heads, pad_len, self.head_dim), device=self.device, dtype=self.dtype)], dim=2)
                 
             K_list.append(K_req)
             V_list.append(V_req)
