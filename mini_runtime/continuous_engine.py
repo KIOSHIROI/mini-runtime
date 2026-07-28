@@ -70,6 +70,9 @@ class Engine:
                 mp.record("after_decode", mp.snapshot(self.backend.model, self.kv_manager, str(self.backend.device)))
                 ep.decode_done(d_tokens, d_reqs)
                 
+                # 每步后强制清理 PyTorch allocator 缓存碎片
+                torch.cuda.empty_cache()
+                
                 ep.step_end(
                     waiting=self.waiting_queue.qsize(),
                     prefilling=len(self.prefilling_requests),
