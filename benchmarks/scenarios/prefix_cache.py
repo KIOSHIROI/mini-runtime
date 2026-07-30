@@ -6,7 +6,7 @@ Prefix Cache 验证实验:
 通过对比 A 和 B 的吞吐/延迟，验证 Prefix Cache 的效果。
 """
 import asyncio
-from mini_runtime.backends.native_backend import NativeBackend
+from mini_runtime.backend.native import NativeBackend
 from mini_runtime.engine import Engine
 
 PROMPT_SHARED = "介绍一下杭州这座城市，包括它的地理位置、历史文化、经济发展和旅游资源。"

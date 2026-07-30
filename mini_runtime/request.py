@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 import asyncio
-from .kv_cache import BlockTable
+from .cache.kv_cache import BlockTable
 
 @dataclass
 class Request:

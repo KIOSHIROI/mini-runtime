@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ..model.qwen2_model import Qwen2Model
 from ..model.config import Qwen2Config
 from ..model.loader import load_qwen2_weights
-from ..kv_cache import KVCacheManager
+from ..cache.kv_cache import KVCacheManager
 from ..profiler import ModuleProfiler
 
 

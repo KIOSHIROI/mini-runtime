@@ -1,6 +1,6 @@
 """测试 BlockPool.read_layer 的 offset 支持"""
 import torch
-from mini_runtime.kv_cache import BlockPool, BlockTable
+from mini_runtime.cache.kv_cache import BlockPool, BlockTable
 
 def make_pool(num_blocks=4, num_layers=1, num_kv_heads=2, block_size=16, head_dim=4):
     return BlockPool(num_blocks, num_layers, num_kv_heads, block_size, head_dim, torch.device('cpu'))

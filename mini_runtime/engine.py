@@ -4,10 +4,10 @@ from asyncio import Queue
 
 from .request import Request
 from .metrics import Metrics
-from .kv_cache import KVCacheManager, BlockTable
-from .prefix_cache import PrefixCache
+from .cache.kv_cache import KVCacheManager, BlockTable
+from .cache.prefix_cache import PrefixCache
 from .configs.runtime_config import BLOCK_SIZE, NUM_BLOCKS, MAX_TOKENS_PER_PREFILL_CHUNK, MAX_TOKENS_PER_PREFILL_STEP
-from .backends.native_backend import NativeBackend, PrefillInput, BatchDecodeInput
+from .backend.native import NativeBackend, PrefillInput, BatchDecodeInput
 from .profiler import EngineProfiler, MemoryProfiler
 
 class Engine:

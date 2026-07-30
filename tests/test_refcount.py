@@ -2,8 +2,8 @@
 验证 cache 持有的 block 不会被运行请求的 free 提前释放。
 """
 import torch
-from mini_runtime.kv_cache import KVCacheManager, BlockTable
-from mini_runtime.prefix_cache import PrefixCache
+from mini_runtime.cache.kv_cache import KVCacheManager, BlockTable
+from mini_runtime.cache.prefix_cache import PrefixCache
 
 BS = 16
 manager = KVCacheManager(num_blocks=16, block_size=BS, num_layers=2,

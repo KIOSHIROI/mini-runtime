@@ -3,7 +3,7 @@ import asyncio
 import time
 import csv
 import torch
-from mini_runtime.backends.native_backend import NativeBackend
+from mini_runtime.backend.native import NativeBackend
 from mini_runtime.engine import Engine
 
 

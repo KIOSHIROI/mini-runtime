@@ -1,7 +1,7 @@
 """测试阶段 1c: evict 机制 (LRU 叶子驱逐 + dec_ref)"""
 import torch
-from mini_runtime.kv_cache import KVCacheManager, BlockTable
-from mini_runtime.prefix_cache import PrefixCache
+from mini_runtime.cache.kv_cache import KVCacheManager, BlockTable
+from mini_runtime.cache.prefix_cache import PrefixCache
 
 BS = 16
 manager = KVCacheManager(16, BS, 2, 2, 4, torch.device('cpu'))

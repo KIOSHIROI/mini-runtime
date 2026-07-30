@@ -1,6 +1,6 @@
 """端到端测试: prefix cache 集成到 Engine"""
 import asyncio
-from mini_runtime.backends.native_backend import NativeBackend
+from mini_runtime.backend.native import NativeBackend
 from mini_runtime.engine import Engine
 
 

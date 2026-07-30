@@ -2,8 +2,8 @@ import asyncio
 import os
 import csv
 from datetime import datetime
-from mini_runtime.backends.native_backend import NativeBackend
-from mini_runtime.benchmark import run_benchmark, run_continuous_benchmark, write_metrics_csv
+from mini_runtime.backend.native import NativeBackend
+from mini_runtime.benchmark import run_continuous_benchmark, write_metrics_csv
 
 async def main():
     backend = NativeBackend("Qwen/Qwen2.5-0.5B-Instruct")
