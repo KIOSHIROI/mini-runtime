@@ -14,7 +14,8 @@ from mini_runtime.model.qwen2_model import Qwen2Model
 from mini_runtime.model.config import Qwen2Config
 from mini_runtime.model.loader import load_qwen2_weights
 our = Qwen2Model(Qwen2Config())
-load_qwen2_weights(our, MODEL_PATH)
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+load_qwen2_weights(our, MODEL_PATH, DEVICE)
 our.eval()
 
 # ---- 输入 ----
