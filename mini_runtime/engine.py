@@ -1,6 +1,7 @@
 import asyncio
 import torch
 from asyncio import Queue
+
 from .request import Request
 from .metrics import Metrics
 from .kv_cache import KVCacheManager, BlockTable
@@ -174,26 +175,27 @@ class Engine:
         self.metrics.prefill_batches += 1
         budget = MAX_TOKENS_PER_PREFILL_STEP
         max_chunk = MAX_TOKENS_PER_PREFILL_CHUNK
-        migrated = [] # 本轮完成的 prefill 的请求
-        
+
+        # 1. 收集阶段：构造 PrefillInput 列表
+        batched_inputs: list[PrefillInput] = []
         step_tokens = 0
-        step_reqs = 0
+
         for r in self.prefilling_requests:
             if budget <= 0:
                 break
-            
+
             prompt_len = len(r.token_ids)
             start = r.prefill_progress
-            
+
             if start < prompt_len:
                 chunk_len = min(budget, max_chunk, prompt_len - start)
                 end = start + chunk_len
             else:
-                # 全缓存命中
                 chunk_len = 0
-                end = prompt_len 
+                end = prompt_len
+
             is_last = (end == prompt_len)
-            
+
             inp = PrefillInput(
                 request_id=r.request_id,
                 token_ids=r.token_ids,
@@ -203,37 +205,44 @@ class Engine:
                 num_cached_blocks=r.num_matched_blocks,
                 chunk_start=start,
                 chunk_end=end,
-                is_last_chunk=is_last
+                is_last_chunk=is_last,
             )
-            
-            result = self.backend.prefill(inp)  # 同步调用，避免 asyncio.to_thread 显存泄漏
-            
-            if is_last:
-                # 插入 prefix cache
+            batched_inputs.append(inp)
+            budget -= chunk_len
+            step_tokens += chunk_len
+
+        if not batched_inputs:
+            return 0, 0
+
+        # 2. 一次批量前向传播
+        results = self.backend.batch_prefill(batched_inputs)
+
+        # 3. 处理结果：更新状态、迁移完成的请求
+        migrated: list[Request] = []
+        now = asyncio.get_running_loop().time()
+
+        for r, inp, result in zip(self.prefilling_requests, batched_inputs, results):
+            if inp.is_last_chunk:
                 new_cache_blocks = self.prefix_cache.insert(
                     r.token_ids, list(r.block_table.block_ids), r.match_result)
                 for bid in new_cache_blocks:
                     self.kv_manager.inc_ref(bid)
-                
+
                 r._last_token = result
                 r._generated_token_ids.append(result)
                 r.generated_tokens = 1
-                r.first_token_time = asyncio.get_running_loop().time()
+                r.first_token_time = now
                 self.engine_profiler.request_first_token(r.request_id)
                 r.prefill_done = True
                 migrated.append(r)
-            
-            r.prefill_progress = end
-            budget -= chunk_len
-            step_tokens += chunk_len
-            step_reqs += 1
-        
-        # 迁移完成的请求
+
+            r.prefill_progress = inp.chunk_end
+
         for r in migrated:
             self.prefilling_requests.remove(r)
             self.running_requests.append(r)
-    
-        return step_tokens, step_reqs
+
+        return step_tokens, len(batched_inputs)
             
     async def decode_one_step(self):
         step_tokens = 0

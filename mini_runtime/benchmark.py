@@ -1,5 +1,5 @@
 from .runtime import MiniRuntime
-from .continuous_engine import Engine
+from .engine import Engine
 from .workload import make_workload
 from .backends.native_backend import NativeBackend
 import asyncio

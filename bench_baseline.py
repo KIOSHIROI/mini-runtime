@@ -4,7 +4,7 @@ import time
 import csv
 import torch
 from mini_runtime.backends.native_backend import NativeBackend
-from mini_runtime.continuous_engine import Engine
+from mini_runtime.engine import Engine
 
 
 # ── prompt 构造 ──────────────────────────────────────────────

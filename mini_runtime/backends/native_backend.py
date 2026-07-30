@@ -211,7 +211,117 @@ class NativeBackend:
             return next_token
         else:
             return None
+    def batch_prefill(self, inputs: list[PrefillInput]) -> list:
+        mp = self.module_profiler
+        pool = self.kv_manager.pool 
         
+        results = [None] * len(inputs)
+        
+        chunk_inputs = []
+        chunk_indices = []
+        r_block_ids_list = []
+        past_lens = []
+        chunk_lens = []
+
+        offsets = []
+
+        for idx, inp in enumerate(inputs):
+            chunk_len = inp.chunk_end - inp.chunk_start
+            if chunk_len == 0:
+                past_kv = []
+                for layer_idx in range(pool.num_layers):
+                    K, V = pool.read_layer(
+                        layer_idx, [inp.block_ids], [inp.chunk_start],
+                        inp.chunk_start, [inp.block_offset]
+                    )
+                    past_kv.append((K, V))
+
+                input_ids = torch.tensor([[inp.token_ids[-1]]], device=self.device)
+                position_ids = torch.tensor([[inp.chunk_start]], device=self.device)
+                logits, _ = self.model(input_ids, position_ids, past_key_values=past_kv)
+
+                next_token = logits[0, -1, :].argmax().item()
+                self._past_len[inp.request_id] = inp.chunk_start
+                self._generated[inp.request_id] = [next_token]
+                results[idx] = next_token
+                
+            if chunk_len > 0:
+                chunk_inputs.append(inp)
+                r_block_ids_list.append(inp.block_ids)
+                chunk_indices.append(idx)
+                past_len = inp.chunk_start
+                past_lens.append(past_len)
+                chunk_lens.append(chunk_len)
+                offsets.append(inp.block_offset)
+        
+        B = len(chunk_inputs) 
+        if B == 0:
+            return results
+        
+        max_past_len = max(past_lens) if past_lens else 0
+        max_chunk_len = max(chunk_lens) if chunk_lens else 0
+        
+        batched_kvs = []
+        
+        t0 = time.perf_counter()
+        for layer_idx in range(pool.num_layers):
+            K_batch, V_batch = pool.read_layer(
+                layer_idx, r_block_ids_list, past_lens, max_past_len, offsets
+            )
+            batched_kvs.append((K_batch, V_batch))
+        mp.record("kv_head", mp.elapsed(t0))
+            
+        input_ids = torch.zeros(B, max_chunk_len, dtype=torch.long, device=self.device)
+        position_ids = torch.zeros(B, max_chunk_len, dtype=torch.long, device=self.device)
+        
+        for i, inp in enumerate(chunk_inputs):
+            cl = chunk_lens[i]
+            chunk_tokens = inp.token_ids[inp.chunk_start:inp.chunk_end]
+            input_ids[i, :cl] = torch.tensor(chunk_tokens, device=self.device)
+            position_ids[i, :cl] = torch.arange(inp.chunk_start, inp.chunk_end, device=self.device)
+        
+        attn_mask = torch.zeros(B, 1, max_chunk_len, max_past_len + max_chunk_len, device=self.device, dtype=torch.bool)
+        
+        for i in range(B):
+            pl = past_lens[i]
+            cl = chunk_lens[i]
+            if pl > 0:
+                attn_mask[i, 0, :cl, :pl] = True
+            if cl > 0:
+                causal = torch.tril(torch.ones(cl, cl, device=self.device, dtype=torch.bool))
+                attn_mask[i, 0, :cl, max_past_len:max_past_len + cl] = causal
+            
+        
+        # forward
+        logits, new_kvs = self.model(
+            input_ids, position_ids,
+            past_key_values=batched_kvs,
+            attention_mask=attn_mask,
+        )
+        
+        t0 = time.perf_counter()
+        for i, inp in enumerate(chunk_inputs):
+            cl = chunk_lens[i]
+            
+            chunk_kv = []
+            for k, v in new_kvs:
+                chunk_k = k[i:i+1, :, max_past_len:max_past_len + cl, :]
+                chunk_v = v[i:i+1, :, max_past_len:max_past_len + cl, :]
+                chunk_kv.append((chunk_k, chunk_v))
+        
+            pool.write_chunk_kv(list(inp.block_ids), chunk_kv, token_start=inp.chunk_start, block_offset=inp.block_offset)
+        mp.record("kv_write", mp.elapsed(t0))
+        
+        for j, (inp, idx) in enumerate(zip(chunk_inputs, chunk_indices)):
+            self._past_len[inp.request_id] = inp.chunk_end
+            
+            if inp.is_last_chunk:
+                next_token = logits[j, -1, :].argmax().item()
+                self._generated[inp.request_id] = [next_token]
+                results[idx] = next_token
+                
+        return results
+                
     def batch_decode(self, inputs: list[BatchDecodeInput]) -> list:
         """返回 [next_token_id, ...]"""
         mp = self.module_profiler
@@ -244,7 +354,7 @@ class NativeBackend:
         mp.record("kv_head", mp.elapsed(t0))
         
         # attenion_mask：decode 时 query 只有 1 个新 token，需 attend 到过去所有 token + 自己
-        attention_mask = torch.ones(B, 1, 1, max_past_len + 1, device=self.device).bool()
+        attention_mask = torch.ones(B, 1, 1, max_past_len + 1, device=self.device).bool() # 
         for i in range(B):
             # 只 mask 掉不同请求之间的 padding 位
             if past_lens[i] < max_past_len:

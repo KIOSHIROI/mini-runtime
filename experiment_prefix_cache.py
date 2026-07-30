@@ -7,7 +7,7 @@ Prefix Cache 验证实验:
 """
 import asyncio
 from mini_runtime.backends.native_backend import NativeBackend
-from mini_runtime.continuous_engine import Engine
+from mini_runtime.engine import Engine
 
 PROMPT_SHARED = "介绍一下杭州这座城市，包括它的地理位置、历史文化、经济发展和旅游资源。"
 

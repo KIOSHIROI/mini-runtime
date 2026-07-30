@@ -1,5 +1,5 @@
 import asyncio
-from mini_runtime.continuous_engine import Engine
+from mini_runtime.engine import Engine
 
 async def run_scene(name: str, num_blocks: int, block_size: int,
                     num_requests: int, max_batch_size: int,

@@ -1,7 +1,7 @@
 """端到端测试: prefix cache 集成到 Engine"""
 import asyncio
 from mini_runtime.backends.native_backend import NativeBackend
-from mini_runtime.continuous_engine import Engine
+from mini_runtime.engine import Engine
 
 
 async def main():
@@ -9,10 +9,12 @@ async def main():
     engine = Engine(backend=backend, max_batch_size=2, request_timeout=60.0)
     await engine.start()
 
-    # 两个共享长 system prompt 的请求
+    # 两个共享长 system prompt 的请求（并发提交，体现 batch prefill）
     sys_prompt = "You are a helpful assistant. " * 8
-    r1 = await engine.submit(sys_prompt + "Question: what is 1+1? Answer:", max_new_tokens=8)
-    r2 = await engine.submit(sys_prompt + "Question: what is 2+2? Answer:", max_new_tokens=8)
+    r1, r2 = await asyncio.gather(
+        engine.submit(sys_prompt + "Question: what is 1+1? Answer:", max_new_tokens=8),
+        engine.submit(sys_prompt + "Question: what is 2+2? Answer:", max_new_tokens=8),
+    )
 
     print("r1:", {k: r1[k] for k in ("request_id", "ttft", "generated_tokens", "output", "error") if k in r1})
     print("r2:", {k: r2[k] for k in ("request_id", "ttft", "generated_tokens", "output", "error") if k in r2})
