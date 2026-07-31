@@ -41,10 +41,10 @@ status: done
 
 ```mermaid
 flowchart LR
-    subgraph 逻辑视图（请求视角）
+    subgraph "逻辑视图（请求视角）"
         T0[token 0-15] --> T1[token 16-31] --> T2[token 32-47]
     end
-    subgraph 物理视图（显存）
+    subgraph "物理视图（显存）"
         B7[block 7] --> B3[block 3] --> B12[block 12]
     end
     T0 -.映射.-> B7
@@ -90,7 +90,7 @@ $$capacity = (\text{块数}) \times block\_size - offset \tag{1}$$
 
 ```mermaid
 flowchart TD
-    A[allocate 请求<br/>num_tokens] --> B[计算需要块数<br/>ceil(num_tokens / block_size)]
+    A[allocate 请求<br/>num_tokens] --> B["计算需要块数<br/>ceil(num_tokens / block_size)"]
     B --> C{空闲块足够?}
     C -->|是| D[逐块 popleft + 加入 BlockTable]
     C -->|否| E[返回 False<br/>调用方 evict 或 OOM]

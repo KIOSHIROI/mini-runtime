@@ -62,7 +62,7 @@ PyTorch 的答案：**Dispatcher（分发器）**。算子名 + 参数签名（d
 
 ```mermaid
 flowchart LR
-    P[Python: torch.matmul(a, b)] --> D[ATen Dispatcher]
+    P["Python: torch.matmul(a, b)"] --> D[ATen Dispatcher]
     D -->|device=cuda, dtype=fp16| K1[cuBLAS kernel]
     D -->|device=cpu| K2[MKL/OpenBLAS kernel]
     D -->|自定义注册| K3[第三方 kernel]
@@ -192,7 +192,7 @@ mini-runtime 与 PyTorch 的接触面集中在 `native.py` 与 `profiler.py`：
 flowchart TD
     subgraph mini_runtime
         NB[NativeBackend] -->|set_grad_enabled False| AG[无梯度模式]
-        NB -->|model.to(device)| MV[权重迁移]
+        NB -->|"model.to(device)"| MV[权重迁移]
         NB -->|scaled_dot_product_attention| SDPA[ATen 算子]
         P[Profiler] -->|memory_allocated| AA[实际占用]
         P -->|memory_reserved| AR[缓存池]

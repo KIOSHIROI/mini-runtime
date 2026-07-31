@@ -22,7 +22,7 @@ status: done
 
 ```mermaid
 flowchart TD
-    subgraph 显存预算（A100 80GB）
+    subgraph "显存预算（A100 80GB）"
         W[模型权重 ~1GB（0.5B fp16）] --> T[总显存]
         K[KV Cache 池 可选大小] --> T
         A[激活/中间张量<br/>与 batch × 序列长度相关] --> T
@@ -91,11 +91,11 @@ $$
 
 ```mermaid
 flowchart LR
-    subgraph reserved（从 CUDA 申请）
-        subgraph allocated（张量占用）
+    subgraph reserved["reserved（从 CUDA 申请）"]
+        subgraph allocated["allocated（张量占用）"]
             A1[活跃张量]
         end
-        subgraph cache（空闲缓存）
+        subgraph cache["cache（空闲缓存）"]
             B1[可复用空闲块]
         end
     end

@@ -161,10 +161,10 @@ mini-runtime 的 KV 缓存是"模型内产生、模型外管理"的两段式：
 
 ```mermaid
 flowchart LR
-    subgraph 模型内（产生）
+    subgraph "模型内（产生）"
         A[Attention.forward] -->|返回 K_cache, V_cache| Q[Qwen2Model]
     end
-    subgraph 模型外（管理）
+    subgraph "模型外（管理）"
         Q -->|present_key_values| P[BlockPool<br/>写入 block]
     end
     P -->|decode 读取| A

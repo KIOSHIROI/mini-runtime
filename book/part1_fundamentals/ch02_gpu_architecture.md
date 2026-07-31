@@ -185,7 +185,7 @@ GPU 交互：
 flowchart TD
     subgraph mini_runtime
         NB[NativeBackend] -->|DEVICE 检测| D[torch.device]
-        NB -->|model.to(device)| M[Qwen2Model]
+        NB -->|"model.to(device)"| M[Qwen2Model]
         P[Profiler] -->|显存快照| MC[torch.cuda.memory_allocated]
         P -->|设备信息| MR[torch.cuda.memory_reserved]
     end

@@ -60,9 +60,9 @@ mini-runtime 的选择：**block 级复用 + 分裂时 offset 补偿**
 
 ```mermaid
 flowchart TD
-    R[root] -->|"10,20"| N1[节点 A<br/>blocks: [b1, b2]<br/>ref=1]
-    N1 -->|"30,40"| N2[请求 1 分支<br/>blocks: [b3]]
-    N1 -->|"99,0"| N3[请求 2 分支<br/>blocks: [b4]]
+    R[root] -->|"10,20"| N1["节点 A<br/>blocks: [b1, b2]<br/>ref=1"]
+    N1 -->|"30,40"| N2["请求 1 分支<br/>blocks: [b3]"]
+    N1 -->|"99,0"| N3["请求 2 分支<br/>blocks: [b4]"]
 ```
 
 **查找复杂度**：$O(L \cdot \text{树深})$——从根沿 token 逐步匹配。
