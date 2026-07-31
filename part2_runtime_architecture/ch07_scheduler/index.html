@@ -1,0 +1,3734 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="AI Infra 知识体系教材：Theory ↔ Practice 双主线，以 mini-runtime 验证理论">
+      
+      
+      
+        <link rel="canonical" href="https://kioshiroi.github.io/mini-runtime/part2_runtime_architecture/ch07_scheduler/">
+      
+      
+        <link rel="prev" href="../ch06_engine/">
+      
+      
+        <link rel="next" href="../ch08_continuous_batching/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Ch07 scheduler - 大模型推理系统：从原理到实现</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="https://unpkg.com/katex@0.16.11/dist/katex.min.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#7-scheduler" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="大模型推理系统：从原理到实现" class="md-header__button md-logo" aria-label="大模型推理系统：从原理到实现" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            大模型推理系统：从原理到实现
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Ch07 scheduler
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到深色模式"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到深色模式" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到浅色模式"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到浅色模式" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/KIOSHIROI/mini-runtime" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KIOSHIROI/mini-runtime
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="标签" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  
+    
+  
+  首页
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part1_fundamentals/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 1 部分 · 基础
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 2 部分 · 运行时架构
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part3_memory_system/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 3 部分 · 内存系统
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part4_cuda_kernels/index.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 4 部分 · CUDA Kernel
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part5_parallelism/index.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 5 部分 · 并行
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part6_distributed_runtime/index.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 6 部分 · 分布式运行时
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part7_performance_engineering/index.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 7 部分 · 性能工程
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../part8_industrial_systems/index.md" class="md-tabs__link">
+          
+  
+  
+    
+  
+  第 8 部分 · 工业系统
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/writing_guide/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  附录
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="大模型推理系统：从原理到实现" class="md-nav__button md-logo" aria-label="大模型推理系统：从原理到实现" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    大模型推理系统：从原理到实现
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/KIOSHIROI/mini-runtime" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    KIOSHIROI/mini-runtime
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../part1_fundamentals/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 1 部分 · 基础
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 1 部分 · 基础
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part1_fundamentals/ch01_transformer/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch01 transformer
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part1_fundamentals/ch02_gpu_architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch02 gpu architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part1_fundamentals/ch03_cuda_basics/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch03 cuda basics
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part1_fundamentals/ch04_pytorch_runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch04 pytorch runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part1_fundamentals/ch05_inference_pipeline/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch05 inference pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 2 部分 · 运行时架构
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 2 部分 · 运行时架构
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ch06_engine/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch06 engine
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch07 scheduler
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch07 scheduler
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Motivation 动机
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-theory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Theory 理论
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Theory 理论">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 从"每步三个 GPU 任务"推导决策层次
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 准入决策：从"显存有限"推导准入条件
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 预算决策：从"一步的算力上限"推导预算分配
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 迁移决策：从"状态完成判据"推导迁移规则
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 复杂度分析
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-trade-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 设计权衡（Trade-off）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-industrial-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Industrial Implementations 工业实现
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Industrial Implementations 工业实现">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-vllm-scheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 vLLM 的 Scheduler（独立类）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-sglang-radix-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 SGLang：调度与 Radix Cache 深度融合
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 为什么不同框架调度策略不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-mini-runtime-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. mini-runtime Implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. mini-runtime Implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 架构设计
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 决策点与代码映射
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-theory-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Theory → Code 对应表
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-performance-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Performance Analysis 性能分析
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Performance Analysis 性能分析">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 调度决策对性能的影响路径
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 观察方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Evolution 演进
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Summary 总结
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Summary 总结">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        思考题
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延伸阅读
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ch08_continuous_batching/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch08 continuous batching
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ch09_chunked_prefill/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch09 chunked prefill
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ch10_request_lifecycle/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch10 request lifecycle
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../part3_memory_system/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 3 部分 · 内存系统
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 3 部分 · 内存系统
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part3_memory_system/ch11_kv_cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch11 kv cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part3_memory_system/ch12_paged_kv_cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch12 paged kv cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part3_memory_system/ch13_prefix_cache/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch13 prefix cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part3_memory_system/ch14_memory_pool/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch14 memory pool
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part3_memory_system/ch15_cuda_memory_management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ch15 cuda memory management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 4 部分 · CUDA Kernel
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 4 部分 · CUDA Kernel
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch16_gemm.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch17_layernorm.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch18_rmsnorm.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch19_rope.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch20_flash_attention.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part4_cuda_kernels/ch21_cuda_graph.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <label class="md-nav__link" for="__nav_6" id="__nav_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 5 部分 · 并行
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 5 部分 · 并行
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/ch22_tensor_parallel.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/ch23_pipeline_parallel.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/ch24_expert_parallel.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/ch25_sequence_parallel.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part5_parallelism/ch26_data_parallel.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 6 部分 · 分布式运行时
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 6 部分 · 分布式运行时
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part6_distributed_runtime/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part6_distributed_runtime/ch27_nccl.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part6_distributed_runtime/ch28_rdma_infiniband.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part6_distributed_runtime/ch29_ray.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part6_distributed_runtime/ch30_multi_node_serving.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 7 部分 · 性能工程
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 7 部分 · 性能工程
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/ch31_profiling.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/ch32_nsight.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/ch33_roofline.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/ch34_kernel_optimization.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part7_performance_engineering/ch35_operator_fusion.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_9" id="__nav_9_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    第 8 部分 · 工业系统
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    第 8 部分 · 工业系统
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/index.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch36_vllm.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch37_tensorrt_llm.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch38_sglang.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch39_deepep.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch40_deepspeed_inference.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../part8_industrial_systems/ch41_llamacpp.md" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    None
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_10" >
+        
+          
+          <label class="md-nav__link" for="__nav_10" id="__nav_10_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    附录
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_10_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_10">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    附录
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/writing_guide/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    写作规范（Writing Guide）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/chapter_template/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    章节模板（Chapter Template）
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-motivation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Motivation 动机
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-theory" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Theory 理论
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Theory 理论">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#21-gpu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.1 从"每步三个 GPU 任务"推导决策层次
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#22" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.2 准入决策：从"显存有限"推导准入条件
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#23" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.3 预算决策：从"一步的算力上限"推导预算分配
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#24" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.4 迁移决策：从"状态完成判据"推导迁移规则
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#25" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.5 复杂度分析
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#26-trade-off" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2.6 设计权衡（Trade-off）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-industrial-implementations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Industrial Implementations 工业实现
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="3. Industrial Implementations 工业实现">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#31-vllm-scheduler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.1 vLLM 的 Scheduler（独立类）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#32-sglang-radix-cache" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.2 SGLang：调度与 Radix Cache 深度融合
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#33" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3.3 为什么不同框架调度策略不同？
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-mini-runtime-implementation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. mini-runtime Implementation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="4. mini-runtime Implementation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 架构设计
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 决策点与代码映射
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-theory-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 Theory → Code 对应表
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-performance-analysis" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Performance Analysis 性能分析
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="5. Performance Analysis 性能分析">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#51" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.1 调度决策对性能的影响路径
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#52" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5.2 观察方法
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-evolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Evolution 演进
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Summary 总结
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="7. Summary 总结">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        思考题
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        延伸阅读
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!--
+chapter: ch07
+part: part2_runtime_architecture
+title: Scheduler：准入、预算与迁移
+status: done
+-->
+
+<h1 id="7-scheduler">第 7 章 Scheduler：准入、预算与迁移<a class="headerlink" href="#7-scheduler" title="Permanent link">&para;</a></h1>
+<div class="admonition abstract">
+<p class="admonition-title">本章内容</p>
+<p>第 6 章搭好了 Engine 骨架，但<strong>骨架本身不做决策</strong>——每步"谁进、谁跑、
+谁退"必须由调度策略回答。本章推导调度器的三个决策层次：<strong>准入</strong>（显存
+允许谁进来）、<strong>预算</strong>（算力分给谁多少）、<strong>迁移</strong>（状态何时转换），
+并分析这些决策的代价。mini-runtime 的调度逻辑内嵌在 Engine 的三个方法中，
+我们将逐层拆解，并与 vLLM 的独立 Scheduler 对比。</p>
+</div>
+<hr />
+<h2 id="1-motivation">1. Motivation 动机<a class="headerlink" href="#1-motivation" title="Permanent link">&para;</a></h2>
+<p>假设 Engine 骨架已就绪（第 6 章），请求涌入 <code>waiting_queue</code>。<strong>问题</strong>：
+每步 GPU 只能处理有限的请求——先处理谁？</p>
+<ul>
+<li>先来先服务（FCFS）：实现简单，但一个长 prompt 请求会堵住后面所有短请求；</li>
+<li>短作业优先（SJF）：短请求体验好，但长请求可能饿死；</li>
+<li>完全公平：所有请求平均分——但平均分给"只需 1 步就完成"的请求是浪费。</li>
+</ul>
+<p>更根本的约束是<strong>显存</strong>：每个进入 prefill 的请求都要分配 KV block
+（<a href="../../part3_memory_system/">第 3 部分</a>）。显存不够时，是拒绝、
+排队，还是驱逐已缓存的块？</p>
+<div class="admonition example">
+<p class="admonition-title">调度器的三个基本问题</p>
+<ol>
+<li><strong>准入</strong>：<code>waiting_queue</code> 的请求何时、以什么条件进入 prefill？</li>
+<li><strong>预算</strong>：prefill 的 token 预算如何分配（一个请求独占还是多个共享）？</li>
+<li><strong>迁移</strong>：prefill → decode、decode → 完成，状态转换的判据是什么？</li>
+</ol>
+</div>
+<h2 id="2-theory">2. Theory 理论<a class="headerlink" href="#2-theory" title="Permanent link">&para;</a></h2>
+<h3 id="21-gpu">2.1 从"每步三个 GPU 任务"推导决策层次<a class="headerlink" href="#21-gpu" title="Permanent link">&para;</a></h3>
+<p>第 6 章 §2.3：每步有 admit / prefill / decode 三个动作。对应三类决策：</p>
+<pre class="mermaid"><code>flowchart TD
+    subgraph 决策层次
+        A[准入决策&lt;br/&gt;admit_requests] --&gt; B[预算决策&lt;br/&gt;prefill_step]
+        B --&gt; C[迁移决策&lt;br/&gt;decode_one_step]
+    end
+    A --&gt;|前置条件| K1[显存充足]
+    B --&gt;|约束| K2[MAX_TOKENS_PER_PREFILL_STEP]
+    C --&gt;|约束| K3[max_batch_size / KV 容量]</code></pre>
+<p><strong>决策频率</strong>：每步一次（毫秒级）。因此调度器必须是<strong>增量式</strong>的——
+每步只做局部调整，不能全量重排（全量排序成本 <span class="arithmatex">\(O(B \log B)\)</span> × 每步
+不可接受）。</p>
+<h3 id="22">2.2 准入决策：从"显存有限"推导准入条件<a class="headerlink" href="#22" title="Permanent link">&para;</a></h3>
+<p><strong>问题</strong>：<code>waiting_queue</code> 队首请求何时可以进入 prefill？</p>
+<p>mini-runtime 的准入流程（<code>engine.py:118-170</code>）：</p>
+<pre class="mermaid"><code>flowchart TD
+    A[取队首请求] --&gt; B{活跃请求数 &lt;br/&gt;max_batch_size?}
+    B --&gt;|否| Z[停止准入]
+    B --&gt;|是| C[prefix_cache.match&lt;br/&gt;最长前缀匹配]
+    C --&gt; D[构造 BlockTable&lt;br/&gt;复用 matched blocks + 分配新块]
+    D --&gt; E{分配成功?}
+    E --&gt;|是| F[入 prefilling_requests]
+    E --&gt;|否| G[evict LRU 叶子&lt;br/&gt;dec_ref 归还 block]
+    G --&gt; D
+    G --&gt;|无叶可驱逐| H[回滚复用 + OOM]</code></pre>
+<p>关键不变量：<strong>只有持有完整 KV block 的请求才允许进入 prefill</strong>。
+准入的判据是资源（显存）而非时间（排队时长）——排队时长只影响
+<code>queue_wait</code> 指标，不影响准入资格。</p>
+<div class="admonition note">
+<p class="admonition-title">推导：为什么准入时就要做前缀匹配？</p>
+<p>前缀匹配的结果（<code>matched_blocks</code>、<code>num_matched_tokens</code>）决定了：
+1) 需要<strong>新分配</strong>多少 block（= 总 token 数 - 命中 token 数）；
+2) prefill 时跳过多少 token 的计算。
+因此匹配必须发生在<strong>分配之前</strong>——先知道省多少，再决定要多少。
+这正是 <a href="../../part3_memory_system/ch13_prefix_cache/">第 13 章 Prefix Cache</a>
+与调度器耦合的位置。</p>
+</div>
+<h3 id="23">2.3 预算决策：从"一步的算力上限"推导预算分配<a class="headerlink" href="#23" title="Permanent link">&para;</a></h3>
+<p><strong>问题</strong>：多个 prefill 请求竞争 GPU 时，一步内处理多少 token？</p>
+<p>mini-runtime 用两个常量约束（<code>runtime_config.py:6-7</code>）：</p>
+<ul>
+<li><code>MAX_TOKENS_PER_PREFILL_CHUNK = 1024</code>：单请求单块上限；</li>
+<li><code>MAX_TOKENS_PER_PREFILL_STEP = 8192</code>：一步总预算。</li>
+</ul>
+<p><code>prefill_step</code>（<code>engine.py:183-212</code>）按顺序扫描 <code>prefilling_requests</code>，
+每个请求分得 <code>min(budget, max_chunk, prompt_len - progress)</code> 的 token 数：</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># engine.py:191 预算分配的核心逻辑</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="n">chunk_len</span> <span class="o">=</span> <span class="nb">min</span><span class="p">(</span><span class="n">budget</span><span class="p">,</span> <span class="n">max_chunk</span><span class="p">,</span> <span class="n">prompt_len</span> <span class="o">-</span> <span class="n">start</span><span class="p">)</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="n">budget</span> <span class="o">-=</span> <span class="n">chunk_len</span>
+</span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">推导：预算分配是"公平性"与"吞吐"的权衡旋钮</p>
+<ul>
+<li>预算 = 8192、只有一个长请求：它独占一步（吞吐高，但 decode 被阻塞）；</li>
+<li>预算分摊给多个请求：每个请求分到小 chunk（响应好，但每步 batch 变大、
+  计算形状更碎）。
+<a href="../ch09_chunked_prefill/">第 9 章</a> 会详细推导这个权衡。</li>
+</ul>
+</div>
+<h3 id="24">2.4 迁移决策：从"状态完成判据"推导迁移规则<a class="headerlink" href="#24" title="Permanent link">&para;</a></h3>
+<p><strong>问题</strong>：请求何时从 prefilling 迁到 running？何时从 running 迁出？</p>
+<p>三个迁移点（<code>engine.py:224-243, 313-320</code>）：</p>
+<table>
+<thead>
+<tr>
+<th>迁移</th>
+<th>判据</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>prefilling → running</td>
+<td><code>is_last_chunk</code>（本步 chunk 覆盖完 prompt）</td>
+<td>记首 token 时间、加入 running</td>
+</tr>
+<tr>
+<td>running → 完成</td>
+<td><code>generated_tokens &gt;= max_new_tokens</code> 或 EOS</td>
+<td><code>finish_request</code>：释放 block</td>
+</tr>
+<tr>
+<td>running → 扩容失败</td>
+<td>decode 时 block 不够且 evict 失败</td>
+<td>OOM 失败路径</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">一个隐蔽的决策点：decode 前的扩容</p>
+<p><code>decode_one_step</code>（<code>engine.py:267-279</code>）每步检查
+<code>total &gt; block_table.capacity</code>，不足时<strong>先扩容再 decode</strong>。
+这个"隐式准入"说明：running 请求也可能因显存不足被驱逐——调度
+决策不只发生在进入时，也发生在运行中。</p>
+</div>
+<h3 id="25">2.5 复杂度分析<a class="headerlink" href="#25" title="Permanent link">&para;</a></h3>
+<p>设活跃请求 <span class="arithmatex">\(B\)</span>，等待队列长度 <span class="arithmatex">\(W\)</span>：</p>
+<ul>
+<li>准入：每步最多扫描 <span class="arithmatex">\(O(\min(W, \text{max\_batch\_size}))\)</span> 次（有容量上限）；</li>
+<li>预算分配：<span class="arithmatex">\(O(B)\)</span>；</li>
+<li>迁移判定：<span class="arithmatex">\(O(B)\)</span>；</li>
+<li>前缀匹配：单次 <span class="arithmatex">\(O(L \cdot d_{\text{tree}})\)</span>（树深 × 序列长，见第 13 章）。</li>
+</ul>
+<p><strong>结论</strong>：调度器每步 CPU 开销 <span class="arithmatex">\(O(B + W_{\text{cap}})\)</span>，毫秒级以下——
+调度决策<strong>永远不应该是瓶颈</strong>。若出现瓶颈，说明决策粒度太粗（如全量排序）。</p>
+<h3 id="26-trade-off">2.6 设计权衡（Trade-off）<a class="headerlink" href="#26-trade-off" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>选择</th>
+<th>收益</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准入顺序</td>
+<td>队列 FCFS</td>
+<td>公平、无饿死</td>
+<td>无优先级（VIP 请求同等待遇）</td>
+</tr>
+<tr>
+<td>预算分配</td>
+<td>顺序均摊</td>
+<td>简单</td>
+<td>长请求可能挤占多步</td>
+</tr>
+<tr>
+<td>显存不足</td>
+<td>evict prefix cache</td>
+<td>复用已计算 KV</td>
+<td>缓存命中率下降</td>
+</tr>
+<tr>
+<td>运行中扩容</td>
+<td>每步检查</td>
+<td>及时</td>
+<td>每步多一次 capacity 判断</td>
+</tr>
+</tbody>
+</table>
+<h2 id="3-industrial-implementations">3. Industrial Implementations 工业实现<a class="headerlink" href="#3-industrial-implementations" title="Permanent link">&para;</a></h2>
+<h3 id="31-vllm-scheduler">3.1 vLLM 的 Scheduler（独立类）<a class="headerlink" href="#31-vllm-scheduler" title="Permanent link">&para;</a></h3>
+<p>vLLM 将调度器<strong>独立成 <code>Scheduler</code> 类</strong>，决策更丰富：</p>
+<table>
+<thead>
+<tr>
+<th>决策</th>
+<th>vLLM 做法</th>
+<th>与 mini-runtime 对比</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准入</td>
+<td>按 SequenceGroup 优先级 + 显存预算</td>
+<td>mini-runtime 仅 FCFS</td>
+</tr>
+<tr>
+<td>抢占</td>
+<td>显存不足时<strong>抢占</strong>（swap 到 CPU）而非 OOM</td>
+<td>mini-runtime fail-fast</td>
+</tr>
+<tr>
+<td>预算</td>
+<td><code>max_num_batched_tokens</code>（等价物）</td>
+<td>同思路，参数不同</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>支持用户自定义调度策略</td>
+<td>无</td>
+</tr>
+</tbody>
+</table>
+<h3 id="32-sglang-radix-cache">3.2 SGLang：调度与 Radix Cache 深度融合<a class="headerlink" href="#32-sglang-radix-cache" title="Permanent link">&para;</a></h3>
+<p>SGLang 的 <code>RadixAttention</code> 把前缀匹配纳入调度器内部，命中前缀的请求
+<strong>直接跳过 prefill</strong>（类似 mini-runtime 的"全命中"路径
+<code>native.py:82-96</code>），并在调度时优先选择与现有 batch 共享前缀的请求——
+<strong>调度策略影响缓存命中率</strong>，这是 mini-runtime 尚未涉及的优化维度
+（<a href="../part8_industrial_systems/ch38_sglang.md">第 38 章</a>）。</p>
+<h3 id="33">3.3 为什么不同框架调度策略不同？<a class="headerlink" href="#33" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>框架</th>
+<th>场景假设</th>
+<th>调度倾向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>mini-runtime</td>
+<td>学习/单机小规模</td>
+<td>简单 FCFS，机制完整</td>
+</tr>
+<tr>
+<td>vLLM</td>
+<td>高吞吐生产</td>
+<td>抢占 + 优先级，最大化吞吐</td>
+</tr>
+<tr>
+<td>SGLang</td>
+<td>高并发共享前缀</td>
+<td>前缀感知调度</td>
+</tr>
+<tr>
+<td>TensorRT-LLM</td>
+<td>低延迟部署</td>
+<td>静态 batch 计划</td>
+</tr>
+</tbody>
+</table>
+<p><strong>根本原因</strong>：调度器是"策略"与"机制"的分离点。机制（决策何时做、怎么做）
+各框架几乎一致；策略（谁优先、怎么抢）由<strong>业务目标</strong>决定。</p>
+<h2 id="4-mini-runtime-implementation">4. mini-runtime Implementation<a class="headerlink" href="#4-mini-runtime-implementation" title="Permanent link">&para;</a></h2>
+<h3 id="41">4.1 架构设计<a class="headerlink" href="#41" title="Permanent link">&para;</a></h3>
+<p>mini-runtime 的调度逻辑分布在 Engine 的三个方法中：</p>
+<pre class="mermaid"><code>flowchart TD
+    subgraph Engine 调度
+        AD[admit_requests&lt;br/&gt;准入决策&lt;br/&gt;engine.py:118-170]
+        PF[prefill_step&lt;br/&gt;预算决策&lt;br/&gt;engine.py:172-245]
+        DC[decode_one_step&lt;br/&gt;迁移决策&lt;br/&gt;engine.py:247-322]
+    end
+    AD --&gt;|决策输入| M[prefix_cache.match]
+    AD --&gt;|决策输入| K[KVCacheManager.allocate]
+    PF --&gt;|预算输入| C[runtime_config 常量]
+    DC --&gt;|扩容输入| K
+    DC --&gt;|完成判据| R[Request 状态]</code></pre>
+<h3 id="42">4.2 决策点与代码映射<a class="headerlink" href="#42" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>决策</th>
+<th>位置</th>
+<th>输入 → 输出</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准入上限</td>
+<td><code>engine.py:120</code></td>
+<td><code>len(running)+len(prefilling) &lt; max_batch_size</code></td>
+</tr>
+<tr>
+<td>前缀匹配</td>
+<td><code>engine.py:127</code></td>
+<td><code>token_ids → match_result</code></td>
+</tr>
+<tr>
+<td>分配 + evict 重试</td>
+<td><code>engine.py:140-148</code></td>
+<td><code>allocate → 失败 → evict → 重试</code></td>
+</tr>
+<tr>
+<td>预算切分</td>
+<td><code>engine.py:191</code></td>
+<td><code>budget, max_chunk, progress → chunk_len</code></td>
+</tr>
+<tr>
+<td>prefill 完成迁移</td>
+<td><code>engine.py:225-237</code></td>
+<td><code>is_last_chunk → running</code></td>
+</tr>
+<tr>
+<td>decode 扩容</td>
+<td><code>engine.py:267-279</code></td>
+<td><code>total &gt; capacity → allocate</code></td>
+</tr>
+<tr>
+<td>完成判定</td>
+<td><code>engine.py:313</code></td>
+<td><code>max_new_tokens / EOS → finish</code></td>
+</tr>
+</tbody>
+</table>
+<h3 id="43-theory-code">4.3 Theory → Code 对应表<a class="headerlink" href="#43-theory-code" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>理论机制（§2）</th>
+<th>mini-runtime 证据</th>
+<th>验证要点</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准入判据 = 资源（§2.2）</td>
+<td><code>engine.py:120</code></td>
+<td>容量检查在匹配之前</td>
+</tr>
+<tr>
+<td>匹配先于分配（§2.2）</td>
+<td><code>engine.py:127-141</code></td>
+<td>match → 复用 → 分配剩余</td>
+</tr>
+<tr>
+<td>evict 兜底（§2.2）</td>
+<td><code>engine.py:142-148</code></td>
+<td>分配失败 → LRU 驱逐</td>
+</tr>
+<tr>
+<td>预算切分（§2.3）</td>
+<td><code>engine.py:191</code></td>
+<td>三步 min 取 chunk</td>
+</tr>
+<tr>
+<td>隐式扩容（§2.4）</td>
+<td><code>engine.py:267-279</code></td>
+<td>decode 前 capacity 检查</td>
+</tr>
+</tbody>
+</table>
+<h2 id="5-performance-analysis">5. Performance Analysis 性能分析<a class="headerlink" href="#5-performance-analysis" title="Permanent link">&para;</a></h2>
+<h3 id="51">5.1 调度决策对性能的影响路径<a class="headerlink" href="#51" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>决策</th>
+<th>影响的指标</th>
+<th>传导路径</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>准入顺序</td>
+<td>TTFT（排队延迟）</td>
+<td>FCFS 下长请求在队首 → 短请求 TTFT 恶化</td>
+</tr>
+<tr>
+<td>预算大小</td>
+<td>TPOT / 批大小</td>
+<td>预算大 → prefill 占 GPU → decode 每步延迟</td>
+</tr>
+<tr>
+<td>evict 频率</td>
+<td>缓存命中率</td>
+<td>频繁 evict → 前缀复用率下降</td>
+</tr>
+<tr>
+<td>扩容失败</td>
+<td>OOM 率</td>
+<td>显存紧张时扩容失败 → 请求失败</td>
+</tr>
+</tbody>
+</table>
+<h3 id="52">5.2 观察方法<a class="headerlink" href="#52" title="Permanent link">&para;</a></h3>
+<p><code>metrics.py</code> 的 <code>avg_queue_wait</code>（<code>engine.py:422-425</code>）直接反映准入
+决策的效果：queue_wait 突增说明准入被卡（容量或显存），需检查
+<code>kv_cache.utilization</code>（<code>kv_cache.py:96-97</code>）。</p>
+<h2 id="6-evolution">6. Evolution 演进<a class="headerlink" href="#6-evolution" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>flowchart LR
+    A[静态 batch&lt;br/&gt;请求凑齐才跑] --&gt; B[连续调度&lt;br/&gt;每步动态组批]
+    B --&gt; C[抢占式调度&lt;br/&gt;swap-in/out]
+    C --&gt; D[前缀感知调度&lt;br/&gt;SGLang]
+    D --&gt; E[分布式调度&lt;br/&gt;Ray / 多引擎]</code></pre>
+<p>演进主线：<strong>调度从"凑批"走向"实时决策"</strong>，决策维度从"时间"扩展到
+"显存 + 前缀 + 优先级"，最终走向多机协同（<a href="../part6_distributed_runtime/ch29_ray.md">第 29 章 Ray</a>）。</p>
+<h2 id="7-summary">7. Summary 总结<a class="headerlink" href="#7-summary" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>解决的问题</td>
+<td>每步回答"谁进、谁跑、谁退"，把有限显存/算力映射到请求</td>
+</tr>
+<tr>
+<td>在 AI Infra 中的位置</td>
+<td>Engine 的决策中枢；吞吐/延迟指标的直接决定者</td>
+</tr>
+<tr>
+<td>依赖</td>
+<td>前缀缓存（匹配）、KV 管理器（分配/evict）、请求状态</td>
+</tr>
+<tr>
+<td>影响</td>
+<td>决定 TTFT 分布、缓存命中率、OOM 率</td>
+</tr>
+</tbody>
+</table>
+<h3 id="_1">思考题<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h3>
+<ol>
+<li>若 <code>max_batch_size</code> 从 4 提到 32，TTFT 与吞吐分别如何变化？
+   结合 <a href="../../part1_fundamentals/ch05_inference_pipeline/">第 5 章</a> 的
+   延迟模型推导。</li>
+<li>evict 策略（第 13 章）用 LRU，但如果请求有优先级，evict 应如何调整？</li>
+<li>vLLM 的抢占把 running 请求 swap 到 CPU 显存。mini-runtime 的
+   fail-fast 相比抢占，在"显存抖动"场景下各有什么后果？</li>
+</ol>
+<h3 id="_2">延伸阅读<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h3>
+<ul>
+<li>vLLM 论文 §3.2 <em>Scheduler</em>（抢占/交换机制详解）</li>
+<li>SGLang 论文：<em>Efficiently Programming Large Language Models using SGLang</em>（§4 调度）</li>
+<li>mini-runtime 源码：<code>mini_runtime/engine.py:118-322</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/KIOSHIROI/mini-runtime" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.indexes", "toc.follow", "content.code.copy", "content.code.annotate", "content.tabs.link"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+        <script src="../../javascripts/katex.js"></script>
+      
+        <script src="https://unpkg.com/katex@0.16.11/dist/katex.min.js"></script>
+      
+        <script src="https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
+      
+        <script src="https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js"></script>
+      
+        <script src="../../javascripts/mermaid.js"></script>
+      
+    
+  </body>
+</html>
