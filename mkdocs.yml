@@ -1,0 +1,145 @@
+site_name: "大模型推理系统：从原理到实现"
+site_description: "AI Infra 知识体系教材：Theory ↔ Practice 双主线，以 mini-runtime 验证理论"
+site_url: "https://kioshiroi.github.io/mini-runtime/"
+repo_url: "https://github.com/KIOSHIROI/mini-runtime"
+repo_name: "KIOSHIROI/mini-runtime"
+docs_dir: book
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.critic
+  - pymdownx.caret
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.tilde
+
+extra_javascript:
+  - javascripts/katex.js
+  - https://unpkg.com/katex@0.16.11/dist/katex.min.js
+  - https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js
+  - https://unpkg.com/mermaid@10.9.1/dist/mermaid.min.js
+  - javascripts/mermaid.js
+
+extra_css:
+  - https://unpkg.com/katex@0.16.11/dist/katex.min.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/KIOSHIROI/mini-runtime
+
+nav:
+  - 首页: index.md
+  - 第 1 部分 · 基础:
+      - part1_fundamentals/index.md
+      - part1_fundamentals/ch01_transformer.md
+      - part1_fundamentals/ch02_gpu_architecture.md
+      - part1_fundamentals/ch03_cuda_basics.md
+      - part1_fundamentals/ch04_pytorch_runtime.md
+      - part1_fundamentals/ch05_inference_pipeline.md
+  - 第 2 部分 · 运行时架构:
+      - part2_runtime_architecture/index.md
+      - part2_runtime_architecture/ch06_engine.md
+      - part2_runtime_architecture/ch07_scheduler.md
+      - part2_runtime_architecture/ch08_continuous_batching.md
+      - part2_runtime_architecture/ch09_chunked_prefill.md
+      - part2_runtime_architecture/ch10_request_lifecycle.md
+  - 第 3 部分 · 内存系统:
+      - part3_memory_system/index.md
+      - part3_memory_system/ch11_kv_cache.md
+      - part3_memory_system/ch12_paged_kv_cache.md
+      - part3_memory_system/ch13_prefix_cache.md
+      - part3_memory_system/ch14_memory_pool.md
+      - part3_memory_system/ch15_cuda_memory_management.md
+  - 第 4 部分 · CUDA Kernel:
+      - part4_cuda_kernels/index.md
+      - part4_cuda_kernels/ch16_gemm.md
+      - part4_cuda_kernels/ch17_layernorm.md
+      - part4_cuda_kernels/ch18_rmsnorm.md
+      - part4_cuda_kernels/ch19_rope.md
+      - part4_cuda_kernels/ch20_flash_attention.md
+      - part4_cuda_kernels/ch21_cuda_graph.md
+  - 第 5 部分 · 并行:
+      - part5_parallelism/index.md
+      - part5_parallelism/ch22_tensor_parallel.md
+      - part5_parallelism/ch23_pipeline_parallel.md
+      - part5_parallelism/ch24_expert_parallel.md
+      - part5_parallelism/ch25_sequence_parallel.md
+      - part5_parallelism/ch26_data_parallel.md
+  - 第 6 部分 · 分布式运行时:
+      - part6_distributed_runtime/index.md
+      - part6_distributed_runtime/ch27_nccl.md
+      - part6_distributed_runtime/ch28_rdma_infiniband.md
+      - part6_distributed_runtime/ch29_ray.md
+      - part6_distributed_runtime/ch30_multi_node_serving.md
+  - 第 7 部分 · 性能工程:
+      - part7_performance_engineering/index.md
+      - part7_performance_engineering/ch31_profiling.md
+      - part7_performance_engineering/ch32_nsight.md
+      - part7_performance_engineering/ch33_roofline.md
+      - part7_performance_engineering/ch34_kernel_optimization.md
+      - part7_performance_engineering/ch35_operator_fusion.md
+  - 第 8 部分 · 工业系统:
+      - part8_industrial_systems/index.md
+      - part8_industrial_systems/ch36_vllm.md
+      - part8_industrial_systems/ch37_tensorrt_llm.md
+      - part8_industrial_systems/ch38_sglang.md
+      - part8_industrial_systems/ch39_deepep.md
+      - part8_industrial_systems/ch40_deepspeed_inference.md
+      - part8_industrial_systems/ch41_llamacpp.md
+  - 附录:
+      - guides/writing_guide.md
+      - guides/chapter_template.md

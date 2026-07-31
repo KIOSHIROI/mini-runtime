@@ -102,3 +102,18 @@ asyncio.run(main())
 - New models: add under `model/` with their own `config.py`
 - KV cache optimizations: extend `cache/kv_cache.py`
 - Profiling: use `ModuleProfiler.record()` for new timing points
+
+## Documentation
+
+The `book/` directory is a version-controlled textbook: *大模型推理系统：从原理到实现*
+(AI Infra knowledge system, Theory ↔ Practice dual-track, validated against this repo).
+
+```bash
+# Build the searchable documentation site
+uv pip install --python .venv/bin/python "mkdocs-material>=9.5" "mkdocs>=1.6"
+.venv/bin/mkdocs build        # output to site/
+.venv/bin/mkdocs serve        # local preview at http://127.0.0.1:8000
+```
+
+Writing conventions: `book/guides/writing_guide.md` · chapter template: `book/guides/chapter_template.md`
+
