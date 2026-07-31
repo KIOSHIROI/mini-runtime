@@ -41,11 +41,29 @@ LayerNorm 作为 RMSNorm 对照收尾；CUDA Graph 是框架级执行优化（�
 
 ## 2. 目录结构
 
-> **构建策略（两阶段演进）**：
-> - **初期（现在）**：`torch.utils.cpp_extension`（`load` 方式），开发效率高，
->   适合快速验证 kernel。`.cu` 中直接 `#include <torch/extension.h>`。
-> - **后期（kernel 增多、FlashAttention、自定义算子后）**：迁移 CMake +
->   独立 `libmini_runtime_cuda.so`，统一管理几十个 kernel 的构建。
+> **构建策略（三阶段演进，经学员确认）**：
+>
+> **Phase 0 — 学习 CUDA（load_inline，Day 1–3）**
+> 目标：理解 kernel / launch / thread-block / data_ptr，而非搭建工程。
+> 每个练习一个文件（add1 → add2 → reduce-sum → RMSNorm），
+> 全部用 `load_inline` 内联编译。教学示例保留在 `tutorials/`。
+>
+> **Phase 1 — 建立工程（Day 4，RMSNorm 定稿时迁移）**
+> 拆分为正式结构，保持 Git diff 可读、IDE 支持、教材引用自然：
+> ```
+> mini_runtime/cuda_kernels/
+> ├── kernels/
+> │   ├── add1.cu  add2.cu  rmsnorm.cu  rope.cu  ...
+> └── bindings/
+>     └── extension.cpp          # 统一 torch 封装与 pybind 注册
+> ```
+> Python 侧：`torch.utils.cpp_extension.load(name="mini_runtime_cuda",
+> sources=["bindings/extension.cpp", "kernels/*.cu"])`。
+> 之后 RoPE / Softmax / FlashAttention 都加入 `kernels/`。
+>
+> **Phase 2 — 规模化（kernel 增多后）**
+> CMake + 独立 `libmini_runtime_cuda.so` + Python Runtime 对接。
+> FlashAttention（~1500 行）这类大规模 kernel 不应放在字符串里。
 
 ```
 mini_runtime/cuda_kernels/
