@@ -41,6 +41,12 @@ LayerNorm 作为 RMSNorm 对照收尾；CUDA Graph 是框架级执行优化（�
 
 ## 2. 目录结构
 
+> **构建策略（两阶段演进）**：
+> - **初期（现在）**：`torch.utils.cpp_extension`（`load` 方式），开发效率高，
+>   适合快速验证 kernel。`.cu` 中直接 `#include <torch/extension.h>`。
+> - **后期（kernel 增多、FlashAttention、自定义算子后）**：迁移 CMake +
+>   独立 `libmini_runtime_cuda.so`，统一管理几十个 kernel 的构建。
+
 ```
 mini_runtime/cuda_kernels/
 ├── __init__.py            # 延迟加载扩展（import 时编译一次）
