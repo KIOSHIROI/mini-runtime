@@ -234,7 +234,7 @@ flowchart TD
 | 分裂（§2.4） | `prefix_cache.py:144-185` | 三节点重建 |
 | LRU 叶子（§2.5） | `prefix_cache.py:202-224` | evict 只删叶子 |
 | 引用协同（§2.5） | `engine.py:137,147,229` | inc_ref/dec_ref 配对 |
-| 全命中路径（§2.3） | `native.py:82-97` | 无剩余 token 直接 decode |
+| 全命中路径（§2.3） | `native.py:82-96` | 无剩余 token 直接 decode |
 
 ## 5. Performance Analysis 性能分析
 

@@ -13,7 +13,7 @@ status: done
     本章推导 Chunked Prefill：把长 prefill 切成有界 chunk，配合"每步预算"
     实现 **prefill 与 decode 的抢占式共存**。mini-runtime 的
     `prefill_progress` 字段与 `_prefill_chunk` 路径是完整实现
-    （`engine.py:172-245`, `native.py:137-213`）。
+    （`engine.py:172-245`, `native.py:136-212`）。
 
 ---
 
@@ -178,13 +178,13 @@ flowchart TD
 | 切分 chunk | `engine.py:187-212` | 预算/块上限/进度三者取 min |
 | 状态字段 | `request.py:28` | `prefill_progress` 跨步保存进度 |
 | 最后一块判定 | `engine.py:197` | `is_last = (end == prompt_len)` |
-| 全命中路径 | `native.py:82-97` | 无需 prefill，直接 decode 取首 token |
-| chunk 前向 | `native.py:137-213` | `_prefill_chunk`：读 past + 前向 + 写 KV |
-| 批量版 | `native.py:214-323` | `batch_prefill`：多请求一次前向 |
+| 全命中路径 | `native.py:82-96` | 无需 prefill，直接 decode 取首 token |
+| chunk 前向 | `native.py:136-212` | `_prefill_chunk`：读 past + 前向 + 写 KV |
+| 批量版 | `native.py:213-322` | `batch_prefill`：多请求一次前向 |
 
 ### 4.3 一个关键细节：`position_ids` 的连续性
 
-`native.py:175`：`position_ids = torch.arange(past_len, chunk_end)`——
+`native.py:174`：`position_ids = torch.arange(past_len, chunk_end)`——
 chunk 的绝对位置从 `past_len`（= 已 prefill 数）继续。**这保证了
 RoPE 的位置语义正确**（第 19 章），是"分块可续算"的数学前提。
 
@@ -196,8 +196,8 @@ RoPE 的位置语义正确**（第 19 章），是"分块可续算"的数学前�
 | 切分规则（§2.2） | `engine.py:191` | 三者 min |
 | 预算上界（§2.3） | `engine.py:184` | `budget <= 0` 停止 |
 | 末块判定（§2.2） | `engine.py:197` | `is_last_chunk` 决定迁移 |
-| 位置连续（§2.1） | `native.py:175` | arange 从 past_len 起 |
-| 批量前向（§2.3） | `native.py:214-323` | 多请求一次 forward |
+| 位置连续（§2.1） | `native.py:174` | arange 从 past_len 起 |
+| 批量前向（§2.3） | `native.py:213-322` | 多请求一次 forward |
 
 ## 5. Performance Analysis 性能分析
 
@@ -263,4 +263,4 @@ prefill 引擎用大 batch 吃长 prompt，decode 引擎专注低延迟，
 
 - vLLM 文档：*Chunked Prefill*（`max_num_batched_tokens` 的设计讨论）
 - Agrawal et al., *Sarathi: Efficient LLM Inference by Piggybacking Decodes on Chunked Prefills*, 2024
-- mini-runtime 源码：`mini_runtime/engine.py:172-245`、`mini_runtime/backend/native.py:137-323`
+- mini-runtime 源码：`mini_runtime/engine.py:172-245`、`mini_runtime/backend/native.py:136-322`

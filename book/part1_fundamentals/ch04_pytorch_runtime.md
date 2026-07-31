@@ -144,7 +144,7 @@ PyTorch 的同步点清单：
 训练需要反向传播，推理只需要前向。**结论**：
 
 - `torch.set_grad_enabled(False)`：全局禁用 autograd，省去计算图构建、
-  梯度缓冲与内存预留（`native.py:59`）；
+  梯度缓冲与内存预留（`native.py:57`）；
 - `model.eval()`：切换 dropout/batchnorm 行为（`native.py:55`）；
 - 权重用 `torch.no_grad()` 或 eval 模式加载，避免 `requires_grad` 的
   传播开销。
@@ -204,8 +204,8 @@ flowchart TD
 
 | mini-runtime 决策 | 代码位置 | 权衡分析 |
 |------------------|---------|---------|
-| 全局禁用 autograd | `native.py:59` | 推理无需反向；防止计算图积累占显存 |
-| 权重一次性 `to(device)` | `native.py:56` | 迁移集中在初始化，推理期零迁移 |
+| 全局禁用 autograd | `native.py:57` | 推理无需反向；防止计算图积累占显存 |
+| 权重加载上卡 | `native.py:54` | `load_qwen2_weights` 内 fp16+迁移，推理期零迁移 |
 | 用 SDPA 而非手写 attention | `attention.py:47` | 免维护 kernel，但固定 kernel 策略 |
 | asyncio + 单线程事件循环 | `engine.py:55` | 调度开销小；kernel 发射本身异步 |
 | profiler 双指标监控 | `profiler.py:235-237` | allocated/reserved 差值 = 碎片信号 |
@@ -221,7 +221,7 @@ flowchart TD
 
 | 理论机制（§2） | mini-runtime 证据 | 验证要点 |
 |----------------|------------------|---------|
-| 无梯度模式（§2.6） | `native.py:59` | 无计算图积累 |
+| 无梯度模式（§2.6） | `native.py:57` | 无计算图积累 |
 | 分配器双指标（§2.4） | `profiler.py:235-237` | allocated < reserved 恒成立 |
 | 隐式同步陷阱（§2.5） | 调试期曾引入 `to_thread`（已移除） | 同步/线程切换的代价 |
 | 异步发射（§2.5） | `engine.py` 单线程事件循环 | await 间隙 GPU 持续工作 |

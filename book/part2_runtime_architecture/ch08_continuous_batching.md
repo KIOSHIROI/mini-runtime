@@ -175,7 +175,7 @@ TGI 的 `ContinuousBatchingScheduler` 是社区最早的生产实现之一，其
 | TGI | 分离为主 | 传统缓存 | 无 |
 
 **差异根源**：混批需要 attention 支持"不同请求不同 past_len"的 mask——
-mini-runtime 的 `batch_decode` 已经支持（`native.py:357-361`），但
+mini-runtime 的 `batch_decode` 已经支持（`native.py:356-360`），但
 调度层面仍选择分离以保持简单。
 
 ## 4. mini-runtime Implementation
@@ -207,7 +207,7 @@ flowchart TD
 
 ### 4.3 一个值得注意的细节：EOS 的处理
 
-`batch_decode` 返回 `None` 表示 EOS（`native.py:376-378`），Engine
+`batch_decode` 返回 `None` 表示 EOS（`native.py:375-377`），Engine
 据此判定完成（`engine.py:313` 的 `r._last_token is None`）。
 **EOS 由 backend 判定而非 engine**——backend 拥有 tokenizer，知道
 EOS id；Engine 只消费"是否结束"这个布尔信号。关注点分离的又一例。

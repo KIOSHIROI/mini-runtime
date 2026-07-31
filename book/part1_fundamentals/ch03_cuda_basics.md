@@ -242,8 +242,8 @@ flowchart TD
 | mini-runtime 决策 | 利用的 CUDA 机制 | 权衡 |
 |------------------|-----------------|------|
 | 用 `scaled_dot_product_attention`（`attention.py:47`） | cuDNN/FlashAttention kernel | 免手写 attention，但无法定制 KV 块读取 |
-| `model.to(device)`（`native.py:56`） | 显式 H2D 拷贝 | 一次性迁移，推理期无拷贝 |
-| `torch.set_grad_enabled(False)`（`native.py:59`） | 无梯度 kernel | 省去反向 kernel，避免计算图 |
+| `load_qwen2_weights` 内迁移（`native.py:54`） | fp16 + H2D 拷贝 | 一次性迁移，推理期无拷贝 |
+| `torch.set_grad_enabled(False)`（`native.py:57`） | 无梯度 kernel | 省去反向 kernel，避免计算图 |
 | profiler 用 `memory_allocated/reserved`（`profiler.py:235-237`） | 分配器统计 | 可观测 PyTorch 缓存池状态 |
 
 !!! note "一个值得注意的架构事实"
@@ -259,7 +259,7 @@ flowchart TD
 |----------------|------------------|---------|
 | kernel 异步执行（§2.5） | `engine.py:251` 的 `asyncio.sleep(0.001)` | 显式让出，避免忙等 GPU |
 | 分配器缓存（§2.4） | `profiler.py:235-237` | allocated 与 reserved 的差值 |
-| 显式数据迁移（§2.4） | `native.py:54-56` | load 时一次性 `to(device)` |
+| 显式数据迁移（§2.4） | `native.py:54` | load 时一次性 fp16 + `to(device)` |
 | H2D 拷贝瓶颈 | `benchmarks/scenarios/a800.py:46-47` | 每步监控 allocated 增长 |
 
 ## 5. Performance Analysis 性能分析

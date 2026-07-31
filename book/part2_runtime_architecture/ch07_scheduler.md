@@ -166,7 +166,7 @@ vLLM 将调度器**独立成 `Scheduler` 类**，决策更丰富：
 
 SGLang 的 `RadixAttention` 把前缀匹配纳入调度器内部，命中前缀的请求
 **直接跳过 prefill**（类似 mini-runtime 的"全命中"路径
-`native.py:82-97`），并在调度时优先选择与现有 batch 共享前缀的请求——
+`native.py:82-96`），并在调度时优先选择与现有 batch 共享前缀的请求——
 **调度策略影响缓存命中率**，这是 mini-runtime 尚未涉及的优化维度
 （[第 38 章](../part8_industrial_systems/ch38_sglang.md)）。
 

@@ -149,7 +149,7 @@ vLLM 的分页与 mini-runtime 同构（block 表 + 引用计数），差异在�
 
 !!! note "推导：为什么 PagedAttention 是关键 kernel"
     mini-runtime 每步 decode 都执行"逐块拼接 → 连续张量 → SDPA"
-    （`native.py:349-353` 的 `read_layer`）。这个 gather 是**每步一次
+    （`native.py:349-351` 的 `read_layer`）。这个 gather 是**每步一次
     的显存搬运**。PagedAttention 把"拼接"融进 attention kernel 内部
     （通过 block 表间接寻址），省掉中间张量——这正是
     [第 3 章 §2.3](../part1_fundamentals/ch03_cuda_basics.md) 的
@@ -229,7 +229,7 @@ PYTHONPATH=. python benchmarks/scenarios/kv_cache.py
 ### 5.3 一个诚实的代价测量
 
 mini-runtime 每步 decode 的 `read_layer`（`kv_cache.py:189-224`）
-是纯 Python 逐块拼接——读者可以在 `native.py:349-353` 的
+是纯 Python 逐块拼接——读者可以在 `native.py:349-351` 的
 `kv_head` profiling 点观察它的耗时占比。这个数字就是
 PagedAttention 想要消灭的开销。
 

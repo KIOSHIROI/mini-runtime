@@ -185,7 +185,7 @@ GPU 交互：
 flowchart TD
     subgraph mini_runtime
         NB[NativeBackend] -->|DEVICE 检测| D[torch.device]
-        NB -->|"model.to(device)"| M[Qwen2Model]
+        NB -->|"load_qwen2_weights(fp16+device)"| M[Qwen2Model]
         P[Profiler] -->|显存快照| MC[torch.cuda.memory_allocated]
         P -->|设备信息| MR[torch.cuda.memory_reserved]
     end
@@ -200,8 +200,8 @@ flowchart TD
 | 功能 | 代码位置 | 说明 |
 |------|---------|------|
 | 设备检测 | `native.py:14` | `torch.device("cuda" if torch.cuda.is_available() else "cpu")` |
-| 模型上卡 | `native.py:56` | `self.model.to(device)`，权重迁移到目标设备 |
-| 禁用 autograd | `native.py:59` | `torch.set_grad_enabled(False)`，避免计算图积累 |
+| 权重加载上卡 | `native.py:54` | `load_qwen2_weights` 内完成 fp16 化 + `to(device)` 迁移 |
+| 禁用 autograd | `native.py:57` | `torch.set_grad_enabled(False)`，避免计算图积累 |
 | 显存快照 | `profiler.py:216-237` | `memory_allocated`（实际占用）与 `memory_reserved`（缓存池） |
 | 显存监控脚本 | `benchmarks/scenarios/a800.py:46-99` | 每步打印 allocated/reserved |
 
@@ -223,9 +223,7 @@ sequenceDiagram
     NB->>T: torch.cuda.is_available()
     T-->>NB: True
     NB->>T: load_qwen2_weights(..., device)
-    T->>G: 权重拷贝到 HBM（~1GB）
-    NB->>T: model.to(device)
-    T->>G: 参数迁移
+    T->>G: 权重 fp16 化 + 拷贝到 HBM（~1GB）
     Note over NB,G: 之后每次 forward，PyTorch<br/>调度 cuBLAS/cuDNN kernel 到 GPU
 ```
 
@@ -234,7 +232,7 @@ sequenceDiagram
 | 理论机制（§2） | 代码实现 | 验证要点 |
 |----------------|----------|---------|
 | 设备抽象（§2.1） | `native.py:14` | cuda/cpu 统一为 `torch.device` |
-| 权重驻留 HBM（§2.4） | `native.py:56` | 一次 `to(device)` 完成驻留 |
+| 权重驻留 HBM（§2.4） | `native.py:54` | `load_qwen2_weights` 一次完成 fp16 + 驻留 |
 | 带宽瓶颈度量（§2.5） | `profiler.py:235-237` | allocated/reserved 差值即分配器缓存 |
 | 显存增长追踪 | `benchmarks/scenarios/a800.py:87-89` | 每步 allocated/reserved 日志 |
 
@@ -315,4 +313,4 @@ flowchart LR
 - NVIDIA, *A100 Tensor Core GPU Architecture*, 2020
 - NVIDIA, *H100 Tensor Core GPU Architecture*, 2022
 - 栗显欢等, *CUDA 编程：基础与实践*（中文入门）
-- mini-runtime 源码：`mini_runtime/backend/native.py:14,56,59`、`mini_runtime/profiler.py:216-237`
+- mini-runtime 源码：`mini_runtime/backend/native.py:14,54,57`、`mini_runtime/profiler.py:216-237`

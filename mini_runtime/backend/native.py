@@ -53,7 +53,6 @@ class NativeBackend:
         self.device = device
         load_qwen2_weights(self.model, model_path, device)
         self.model.eval()
-        self.model.to(device)
 
         # 纯推理环境，全局禁用 autograd 避免计算图积累占用显存
         torch.set_grad_enabled(False)
@@ -402,4 +401,9 @@ class NativeBackend:
         self._past_len.pop(request_id, None)
 
     def generated_text(self, request_id: int) -> str:
+        """返回请求**生成过程中**已产出的文本(流式查询)。
+
+        请求完成/被 release 后状态会被清理,此时返回空字符串;
+        完成态文本请使用 Engine 结果字典中的 'output' 字段。
+        """
         return self.tokenizer.decode(self._generated.get(request_id, []))
